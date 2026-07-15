@@ -1,2 +1,4 @@
 # rix-nb
-A notebook environment for using RiX
+
+This is a Mac App that provides a notebook environment for using RiX. 
+
