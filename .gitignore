@@ -1,0 +1,22 @@
+# JavaScript and Bun
+node_modules/
+dist/
+.vite/
+*.log
+
+# Native Tauri and Rust build products
+src-tauri/target/
+src-tauri/gen/
+*.app
+*.dmg
+*.pkg
+
+# macOS and editor state
+.DS_Store
+.idea/
+.vscode/
+
+# Local configuration and scratch space
+.env
+.env.*
+tmp/

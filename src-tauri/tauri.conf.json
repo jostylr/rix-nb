@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RiX Notebook",
+  "version": "0.1.0",
+  "identifier": "org.ratmath.rixnb",
+  "build": {
+    "beforeDevCommand": "bun run dev:web",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "bun run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "RiX Notebook",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 640,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

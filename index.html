@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RiX Notebook</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="toolbar">
+        <div>
+          <p class="eyebrow">RiX Notebook</p>
+          <h1>Hello Markdown</h1>
+        </div>
+        <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
+      </header>
+
+      <section class="workspace" aria-label="Markdown workspace">
+        <label class="pane editor-pane" for="markdown-source">
+          <span class="pane-title">Markdown</span>
+          <textarea id="markdown-source" spellcheck="true"># Welcome to RiX Notebook
+
+This is a **Markdown-first** native notebook.
+
+- Edit this note on the left.
+- See a live preview on the right.
+- RiX execution and project files come next.
+
+> The Markdown file will remain the source of truth.
+</textarea>
+        </label>
+
+        <article class="pane preview-pane" aria-label="Rendered Markdown preview">
+          <span class="pane-title">Preview</span>
+          <div id="markdown-preview" class="markdown-body"></div>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
