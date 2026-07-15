@@ -7,10 +7,11 @@ editing and document-rendering experience.
 
 ## Current milestone: Hello Markdown
 
-This initial application opens a native macOS window with a Markdown editor and
-a live HTML preview. It intentionally has no filesystem access or RiX execution
-yet. It proves the native-shell/WebView boundary before we add CodeMirror,
-project manifests, and notebook execution.
+This initial application opens a native macOS window with a CodeMirror 6
+Markdown editor, a live HTML preview, and a first RiX execution loop. The
+application runs fenced `rix` blocks in document order; normal blocks share a
+notebook context and a `rix new` block starts with a fresh one. It intentionally
+has no filesystem access yet.
 
 ## Development setup
 
@@ -41,15 +42,19 @@ Build an unsigned local macOS application with:
 bun run build
 ```
 
+`bun run dev` is a development command only: it starts Vite's local hot-reload
+web server and launches Tauri against it. A packaged RiX Notebook application
+contains the prebuilt WebView assets and does not require Bun or Node to run.
+
 Tauri writes development and build artifacts below `src-tauri/target/`; they are
 intentionally ignored. A distributable app for other Macs will eventually need
 Apple signing and notarization, but neither is required for local development.
 
 ## Proposed next slices
 
-1. Replace the textarea with CodeMirror 6 and add project/note file operations.
-2. Add `project.toml` and `notebook.toml` parsing plus ordered note navigation.
-3. Bundle RiX for in-WebView execution and add the per-statement output panel.
+1. Add project/note file operations and `project.toml` / `notebook.toml` parsing.
+2. Add a dedicated RiX CodeMirror language package, completion, and diagnostics.
+3. Upgrade the result panel to show source-span-aware, per-statement output.
 4. Build the shared document model and static Markdown/HTML export.
 
 ## Design notes
@@ -62,3 +67,8 @@ state local to a notebook while making reusable mathematical libraries clear.
 Execution results should be live by default. A later per-notebook or per-note
 setting can opt into persisting a result cache for soft export/review without
 making generated output canonical source.
+
+RiX is bundled into the WebView directly from the sibling `rix` source tree.
+The first notebook runtime deliberately does not support RiX filesystem/script
+imports; project-aware module imports will be introduced through a constrained
+notebook module resolver rather than Node APIs.

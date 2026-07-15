@@ -11,8 +11,29 @@
 
 body {
   margin: 0;
-  min-width: 640px;
+  min-width: 760px;
   min-height: 100vh;
+}
+
+button {
+  padding: 0.55rem 0.8rem;
+  color: #fffefa;
+  background: #1f3558;
+  border: 1px solid #172a47;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #2d4b78;
+}
+
+button:focus-visible {
+  outline: 3px solid #a8bedb;
+  outline-offset: 2px;
 }
 
 .app-shell {
@@ -30,9 +51,16 @@ body {
   border-bottom: 1px solid #d9d6ce;
 }
 
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .eyebrow,
 .pane-title,
-.document-status {
+.document-status,
+.cell-result-title {
   margin: 0;
   color: #716e67;
   font-size: 0.72rem;
@@ -51,11 +79,12 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(330px, 1fr) minmax(380px, 1fr);
   min-height: 0;
 }
 
-.pane {
+.pane,
+.output-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
@@ -67,32 +96,58 @@ h1 {
   border-right: 1px solid #d9d6ce;
 }
 
-.preview-pane {
-  overflow: auto;
+.document-pane {
+  display: grid;
+  grid-template-rows: minmax(0, 3fr) minmax(10rem, 1fr);
+  min-height: 0;
   background: #fffefa;
 }
 
+.preview-pane {
+  overflow: auto;
+  border-bottom: 1px solid #d9d6ce;
+}
+
+.output-pane {
+  overflow: auto;
+  padding-top: 14px;
+  padding-bottom: 16px;
+  background: #faf9f5;
+}
+
 .pane-title {
+  display: block;
   margin-bottom: 12px;
 }
 
-#markdown-source {
-  width: 100%;
+#markdown-editor {
   min-height: 0;
-  resize: none;
-  padding: 16px;
+  overflow: auto;
   color: #252827;
   background: #fffefa;
   border: 1px solid #c9c5bc;
   border-radius: 7px;
+}
+
+#markdown-editor .cm-editor {
+  height: 100%;
+  min-height: 100%;
+}
+
+#markdown-editor .cm-scroller {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   line-height: 1.65;
 }
 
-#markdown-source:focus {
-  outline: 3px solid #a8bedb;
-  outline-offset: 2px;
+#markdown-editor .cm-content {
+  padding: 16px 0 32px;
+}
+
+#markdown-editor .cm-gutters {
+  color: #88847c;
+  background: #f7f5ef;
+  border-right: 1px solid #dfdbd1;
 }
 
 .markdown-body {
@@ -118,6 +173,14 @@ h1 {
   font-size: 0.85em;
 }
 
+.markdown-body pre {
+  padding: 0.85rem 1rem;
+  overflow: auto;
+  background: #f1efe9;
+  border: 1px solid #dfdbd1;
+  border-radius: 5px;
+}
+
 .markdown-body blockquote {
   margin-left: 0;
   padding-left: 1rem;
@@ -125,7 +188,44 @@ h1 {
   border-left: 3px solid #a8bedb;
 }
 
-@media (max-width: 720px) {
+.rix-output {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.output-placeholder {
+  margin: 0;
+  color: #716e67;
+  font-size: 0.9rem;
+}
+
+.cell-result {
+  padding: 0.55rem 0.7rem;
+  background: #fffefa;
+  border: 1px solid #dfdbd1;
+  border-left: 3px solid #6f8fbd;
+  border-radius: 4px;
+}
+
+.cell-result-error {
+  border-left-color: #b6544a;
+}
+
+.cell-result-title {
+  margin-bottom: 0.35rem;
+}
+
+.cell-result-value {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #28313c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
   body {
     min-width: 0;
   }
@@ -140,7 +240,7 @@ h1 {
     border-bottom: 1px solid #d9d6ce;
   }
 
-  .preview-pane {
-    min-height: 50vh;
+  .document-pane {
+    min-height: 65vh;
   }
 }

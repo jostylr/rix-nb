@@ -13,6 +13,10 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
+    "@codemirror/lang-markdown": "^6.3.3",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.5",
+    "codemirror": "^6.0.1",
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {

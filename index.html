@@ -12,28 +12,53 @@
           <p class="eyebrow">RiX Notebook</p>
           <h1>Hello Markdown</h1>
         </div>
-        <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
+        <div class="toolbar-actions">
+          <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
+          <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run notebook</button>
+        </div>
       </header>
 
       <section class="workspace" aria-label="Markdown workspace">
-        <label class="pane editor-pane" for="markdown-source">
+        <section class="pane editor-pane" aria-label="Markdown editor">
           <span class="pane-title">Markdown</span>
-          <textarea id="markdown-source" spellcheck="true"># Welcome to RiX Notebook
+          <div id="markdown-editor"># Welcome to RiX Notebook
 
 This is a **Markdown-first** native notebook.
 
 - Edit this note on the left.
-- See a live preview on the right.
-- RiX execution and project files come next.
+- Run RiX cells with the button or ⌘↵.
+- See live rendering and cell results on the right.
 
 > The Markdown file will remain the source of truth.
-</textarea>
-        </label>
 
-        <article class="pane preview-pane" aria-label="Rendered Markdown preview">
-          <span class="pane-title">Preview</span>
-          <div id="markdown-preview" class="markdown-body"></div>
-        </article>
+```rix
+radius := 3;
+area := 22/7 * radius^2;
+area;
+```
+
+The next cell uses `area` from the previous one.
+
+```rix
+perimeter := 2 * 22/7 * radius;
+perimeter;
+```
+</div>
+        </section>
+
+        <section class="document-pane" aria-label="Rendered notebook">
+          <article class="pane preview-pane" aria-label="Rendered Markdown preview">
+            <span class="pane-title">Preview</span>
+            <div id="markdown-preview" class="markdown-body"></div>
+          </article>
+
+          <aside class="output-pane" aria-label="RiX cell results">
+            <span class="pane-title">RiX results</span>
+            <div id="rix-output" class="rix-output">
+              <p class="output-placeholder">Run the notebook to evaluate RiX cells.</p>
+            </div>
+          </aside>
+        </section>
       </section>
     </main>
 
