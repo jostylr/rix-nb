@@ -13,6 +13,11 @@ application runs fenced `rix` blocks in document order; normal blocks share a
 notebook context and a `rix new` block starts with a fresh one. It intentionally
 has no filesystem access yet.
 
+RiX results are the default right-hand pane. Each top-level RiX statement is
+shown with its source line, and selecting a result returns the editor to that
+line. Use the Preview button or `Cmd-Shift-P` to swap that pane for the rendered
+Markdown preview, which includes the current RiX statement results.
+
 ## Development setup
 
 The project uses Bun for JavaScript tooling and Tauri 2 for the native macOS

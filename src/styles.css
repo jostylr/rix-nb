@@ -9,6 +9,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-width: 760px;
@@ -97,18 +101,17 @@ h1 {
 }
 
 .document-pane {
-  display: grid;
-  grid-template-rows: minmax(0, 3fr) minmax(10rem, 1fr);
   min-height: 0;
   background: #fffefa;
 }
 
 .preview-pane {
+  height: 100%;
   overflow: auto;
-  border-bottom: 1px solid #d9d6ce;
 }
 
 .output-pane {
+  height: 100%;
   overflow: auto;
   padding-top: 14px;
   padding-bottom: 16px;
@@ -206,6 +209,12 @@ h1 {
   border: 1px solid #dfdbd1;
   border-left: 3px solid #6f8fbd;
   border-radius: 4px;
+  cursor: pointer;
+}
+
+.cell-result:focus-visible {
+  outline: 3px solid #a8bedb;
+  outline-offset: 2px;
 }
 
 .cell-result-error {
@@ -216,6 +225,36 @@ h1 {
   margin-bottom: 0.35rem;
 }
 
+.cell-source {
+  margin: 0 0 0.45rem;
+  padding: 0.4rem 0.5rem;
+  overflow: auto;
+  color: #4d5a69;
+  background: #f1efe9;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.cell-source-toggle {
+  margin: -0.15rem 0 0.5rem;
+  padding: 0;
+  color: #4d6688;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.cell-source-toggle:hover {
+  color: #1f3558;
+  background: transparent;
+  text-decoration: underline;
+}
+
 .cell-result-value {
   margin: 0;
   white-space: pre-wrap;
@@ -223,6 +262,48 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.86rem;
   line-height: 1.45;
+}
+
+.rix-preview-cell {
+  margin: 1rem 0;
+}
+
+.rix-preview-results {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: -0.55rem;
+  padding: 0.65rem 0.8rem;
+  background: #faf9f5;
+  border: 1px solid #dfdbd1;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+}
+
+.rix-preview-result {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.83rem;
+}
+
+.rix-preview-result > span {
+  color: #716e67;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.rix-preview-result pre {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+}
+
+.rix-preview-result-error {
+  color: #9b3f37;
 }
 
 @media (max-width: 900px) {
