@@ -72,6 +72,7 @@ let dirty = false;
 let fileContext = null;
 let activeDocument = { kind: "note", path: null };
 const collapsedNotebooks = new Set();
+let recentProjectPath = null;
 
 const markdownRenderer = new MarkdownIt({
   html: false,
@@ -786,6 +787,20 @@ async function loadNote(note) {
   setDocument(note.source);
   refreshProjectControls();
   setStatus(`Opened ${note.path.split("/").at(-1)}`);
+  await rememberCurrentProject();
+}
+
+async function rememberCurrentProject() {
+  if (!projects.isOpen || projects.project.directory === recentProjectPath) return;
+  try {
+    await invoke("record_recent_project", {
+      path: projects.project.directory,
+      title: projects.project.title,
+    });
+    recentProjectPath = projects.project.directory;
+  } catch {
+    // Project opening remains available even if the operating system cannot persist recents.
+  }
 }
 
 async function loadToml(path, label) {
@@ -937,6 +952,12 @@ listen("menu-command", (event) => {
     "quick-export": () => quickExport(),
   };
   commands[event.payload]?.();
+});
+listen("open-recent-project", (event) => {
+  runProjectAction(async () => {
+    const note = await projects.openProject(event.payload);
+    if (note) await loadNote(note);
+  });
 });
 window.addEventListener("keydown", (event) => {
   if (handleRunShortcut(event)) return;
