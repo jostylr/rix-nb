@@ -57,8 +57,125 @@ button:focus-visible {
 
 .toolbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1rem;
+}
+
+.project-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  padding: 18px 12px 16px;
+  background: #ebe8e0;
+  border-right: 1px solid #d9d6ce;
+}
+
+.sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 4px 0.75rem;
+}
+
+.sidebar-heading .pane-title {
+  margin: 0;
+}
+
+.sidebar-heading button,
+.sidebar-actions button {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.project-tree {
+  display: grid;
+  align-content: start;
+  gap: 0.15rem;
+  overflow: auto;
+}
+
+.project-tree button {
+  width: 100%;
+  color: #37485f;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.project-tree button:hover,
+.project-tree button[aria-current="true"] {
+  color: #1f3558;
+  background: #d9e5f3;
+}
+
+.project-tree .tree-notebook {
+  margin-top: 0.45rem;
+  padding: 0.4rem 0.45rem;
+  font-weight: 700;
+}
+
+.project-tree .tree-note {
+  padding: 0.35rem 0.45rem 0.35rem 1.15rem;
+}
+
+.sidebar-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #d1cec5;
+}
+
+.project-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 28px;
+  background: #f1efe9;
+  border-bottom: 1px solid #d9d6ce;
+}
+
+.project-bar button {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.project-bar button:disabled {
+  color: #9b978e;
+  background: #e2dfd8;
+  border-color: #d3cfc7;
+  cursor: not-allowed;
+}
+
+.project-bar label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #625f58;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.project-bar select {
+  max-width: 12rem;
+  padding: 0.3rem 0.45rem;
+  color: #28313c;
+  background: #fffefa;
+  border: 1px solid #c9c5bc;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.project-separator {
+  width: 1px;
+  height: 1.5rem;
+  background: #c9c5bc;
 }
 
 .eyebrow,
@@ -85,6 +202,10 @@ h1 {
   display: grid;
   grid-template-columns: minmax(330px, 1fr) minmax(380px, 1fr);
   min-height: 0;
+}
+
+.workspace.has-project {
+  grid-template-columns: 220px minmax(330px, 1fr) minmax(380px, 1fr);
 }
 
 .pane,
@@ -189,6 +310,15 @@ h1 {
   padding-left: 1rem;
   color: #625f58;
   border-left: 3px solid #a8bedb;
+}
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  margin: 1rem 0;
+  border: 1px solid #dfdbd1;
+  border-radius: 5px;
 }
 
 .rix-output {
@@ -306,6 +436,72 @@ h1 {
   color: #9b3f37;
 }
 
+.app-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 0;
+  color: #28313c;
+  background: #fffefa;
+  border: 1px solid #c9c5bc;
+  border-radius: 9px;
+  box-shadow: 0 1rem 3rem rgb(29 42 59 / 25%);
+}
+
+.app-dialog::backdrop {
+  background: rgb(31 53 88 / 24%);
+}
+
+.app-dialog form {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.2rem 1.35rem;
+}
+
+.app-dialog h2,
+.app-dialog p {
+  margin: 0;
+}
+
+.app-dialog h2 {
+  color: #1f3558;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+}
+
+.app-dialog label {
+  display: grid;
+  gap: 0.35rem;
+  color: #625f58;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.app-dialog input {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  color: #28313c;
+  background: #fffefa;
+  border: 1px solid #aaa59a;
+  border-radius: 5px;
+  font: inherit;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: end;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.secondary-button {
+  color: #394b61;
+  background: #e8e5dd;
+  border-color: #d1cec5;
+}
+
+.secondary-button:hover {
+  background: #ddd9d0;
+}
+
 @media (max-width: 900px) {
   body {
     min-width: 0;
@@ -313,6 +509,16 @@ h1 {
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .workspace.has-project {
+    grid-template-columns: 1fr;
+  }
+
+  .project-sidebar {
+    min-height: 14rem;
+    border-right: 0;
+    border-bottom: 1px solid #d9d6ce;
   }
 
   .editor-pane {

@@ -3,6 +3,9 @@ import { EditorView } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import MarkdownIt from "markdown-it";
+import renderMathInElement from "katex/contrib/auto-render";
+import "katex/dist/katex.min.css";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   Context,
   createDefaultRegistry,
@@ -14,6 +17,7 @@ import {
   posToLineCol,
   tokenize,
 } from "../../rix/src/index.js";
+import { ProjectManager } from "./project.js";
 import "./styles.css";
 
 const editorHost = document.querySelector("#markdown-editor");
@@ -26,8 +30,27 @@ const previewPane = document.querySelector("#preview-pane");
 const runButton = document.querySelector("#run-notebook");
 const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
 const status = document.querySelector("#document-status");
+const workspaceTitle = document.querySelector("#workspace-title");
+const workspace = document.querySelector(".workspace");
+const newProjectButton = document.querySelector("#new-project");
+const openProjectButton = document.querySelector("#open-project");
+const saveNoteButton = document.querySelector("#save-note");
+const newNotebookButton = document.querySelector("#new-notebook");
+const newNoteButton = document.querySelector("#new-note");
+const projectSidebar = document.querySelector("#project-sidebar");
+const projectTree = document.querySelector("#project-tree");
+const nameDialog = document.querySelector("#name-dialog");
+const nameDialogTitle = document.querySelector("#name-dialog-title");
+const nameDialogLabel = document.querySelector("#name-dialog-label");
+const nameDialogInput = document.querySelector("#name-dialog-input");
+const messageDialog = document.querySelector("#message-dialog");
+const messageDialogTitle = document.querySelector("#message-dialog-title");
+const messageDialogBody = document.querySelector("#message-dialog-body");
+const projects = new ProjectManager();
 let latestRuns = [];
 let activeRightPane = "results";
+let loadingDocument = false;
+let dirty = false;
 
 const markdownRenderer = new MarkdownIt({
   html: false,
@@ -36,6 +59,7 @@ const markdownRenderer = new MarkdownIt({
 });
 
 const defaultFenceRenderer = markdownRenderer.renderer.rules.fence;
+const defaultImageRenderer = markdownRenderer.renderer.rules.image;
 
 function escapeHtml(value) {
   return value
@@ -62,8 +86,41 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
   return `<div class="rix-preview-cell">${code}<div class="rix-preview-results">${results}</div></div>`;
 };
 
+function resolveProjectAsset(source) {
+  if (!projects.currentNotePath || /^(?:[a-z]+:|\/)/i.test(source)) return source;
+  const pieces = [...projects.currentNotePath.split("/").slice(0, -1), ...source.split("/")];
+  const resolved = [];
+  for (const piece of pieces) {
+    if (!piece || piece === ".") continue;
+    if (piece === "..") resolved.pop();
+    else resolved.push(piece);
+  }
+  return `/${resolved.join("/")}`;
+}
+
+markdownRenderer.renderer.rules.image = (tokens, index, options, env, self) => {
+  const token = tokens[index];
+  const source = token.attrGet("src");
+  if (!source || !projects.currentNotePath || /^(?:[a-z]+:|\/)/i.test(source)) {
+    return defaultImageRenderer(tokens, index, options, env, self);
+  }
+  token.attrSet("src", convertFileSrc(resolveProjectAsset(source)));
+  const rendered = defaultImageRenderer(tokens, index, options, env, self);
+  token.attrSet("src", source);
+  return rendered;
+};
+
 function renderMarkdown(source, runs = latestRuns) {
   preview.innerHTML = markdownRenderer.render(source, { rixRuns: runs, rixCellIndex: 0 });
+  renderMathInElement(preview, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "$", right: "$", display: false },
+      { left: "\\(", right: "\\)", display: false },
+      { left: "\\[", right: "\\]", display: true },
+    ],
+    throwOnError: false,
+  });
 }
 
 function extractRixCells(source) {
@@ -279,6 +336,102 @@ function toggleRightPane() {
   setRightPane(activeRightPane === "results" ? "preview" : "results");
 }
 
+function setStatus(message) {
+  status.textContent = message;
+}
+
+function setDocument(source) {
+  loadingDocument = true;
+  editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: source } });
+  loadingDocument = false;
+  dirty = false;
+  latestRuns = [];
+  renderMarkdown(source);
+  runNotebook();
+}
+
+function refreshProjectControls() {
+  const open = projects.isOpen;
+  saveNoteButton.disabled = !open;
+  newNotebookButton.disabled = !open;
+  newNoteButton.disabled = !open;
+  projectSidebar.hidden = !open;
+  workspace.classList.toggle("has-project", open);
+  if (!open) {
+    projectTree.replaceChildren();
+    return;
+  }
+
+  projectTree.replaceChildren();
+  for (const notebook of projects.notebookList) {
+    const notebookButton = document.createElement("button");
+    notebookButton.type = "button";
+    notebookButton.className = "tree-notebook";
+    notebookButton.textContent = notebook.title;
+    notebookButton.setAttribute("aria-current", String(notebook.path === projects.currentNotebookPath));
+    notebookButton.addEventListener("click", () => runProjectAction(async () => {
+      if (dirty) await saveNote();
+      await loadNote(await projects.selectNotebook(notebook.path));
+    }));
+    projectTree.append(notebookButton);
+
+    const manifest = projects.notebooks.get(notebook.path);
+    for (const relativePath of manifest.notes) {
+      const path = `${notebook.path.slice(0, notebook.path.lastIndexOf("/"))}/${relativePath}`;
+      const noteButton = document.createElement("button");
+      noteButton.type = "button";
+      noteButton.className = "tree-note";
+      noteButton.textContent = relativePath;
+      noteButton.setAttribute("aria-current", String(path === projects.currentNotePath));
+      noteButton.addEventListener("click", () => runProjectAction(async () => {
+        if (dirty) await saveNote();
+        await loadNote(await projects.selectNote(path));
+      }));
+      projectTree.append(noteButton);
+    }
+  }
+  workspaceTitle.textContent = projects.project.title;
+}
+
+async function saveNote() {
+  if (!projects.isOpen) return;
+  await projects.saveCurrentNote(editor.state.doc.toString());
+  dirty = false;
+  setStatus("Saved");
+}
+
+async function loadNote(note) {
+  setDocument(note.source);
+  refreshProjectControls();
+  setStatus(`Opened ${note.path.split("/").at(-1)}`);
+}
+
+async function runProjectAction(action) {
+  try {
+    await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(message);
+    messageDialogTitle.textContent = "Project error";
+    messageDialogBody.textContent = message;
+    messageDialog.showModal();
+  }
+}
+
+function requestName({ title, label, value }) {
+  return new Promise((resolve) => {
+    nameDialogTitle.textContent = title;
+    nameDialogLabel.textContent = label;
+    nameDialogInput.value = value;
+    nameDialog.addEventListener("close", () => {
+      resolve(nameDialog.returnValue === "confirm" ? nameDialogInput.value.trim() : null);
+    }, { once: true });
+    nameDialog.showModal();
+    nameDialogInput.focus();
+    nameDialogInput.select();
+  });
+}
+
 const editor = new EditorView({
   state: EditorState.create({
     doc: initialDocument,
@@ -294,7 +447,10 @@ const editor = new EditorView({
         if (!update.docChanged) return;
         latestRuns = [];
         renderMarkdown(update.state.doc.toString());
-        status.textContent = "Edited · run notebook to refresh results";
+        if (!loadingDocument) {
+          dirty = true;
+          setStatus(projects.isOpen ? "Edited · ⌘S to save" : "Edited · run notebook to refresh results");
+        }
       }),
     ],
   }),
@@ -303,8 +459,47 @@ const editor = new EditorView({
 
 runButton.addEventListener("click", runNotebook);
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
+newProjectButton.addEventListener("click", () => runProjectAction(async () => {
+  const title = await requestName({ title: "New RiX project", label: "Project name", value: "RiX Project" });
+  if (!title) return;
+  const note = await projects.createProject(title);
+  if (note) await loadNote(note);
+}));
+openProjectButton.addEventListener("click", () => runProjectAction(async () => {
+  const note = await projects.chooseAndOpenProject();
+  if (note) await loadNote(note);
+}));
+saveNoteButton.addEventListener("click", () => runProjectAction(saveNote));
+newNotebookButton.addEventListener("click", () => runProjectAction(async () => {
+  const title = await requestName({ title: "New notebook", label: "Notebook title", value: "Notebook" });
+  if (!title) return;
+  const note = await projects.createNotebook(title);
+  await loadNote(note);
+}));
+newNoteButton.addEventListener("click", () => runProjectAction(async () => {
+  const title = await requestName({ title: "New note", label: "Note title", value: "Untitled note" });
+  if (!title) return;
+  const note = await projects.createNote(title);
+  await loadNote(note);
+}));
 window.addEventListener("keydown", (event) => {
   if (handleRunShortcut(event)) return;
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && !event.shiftKey) {
+    event.preventDefault();
+    newProjectButton.click();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
+    event.preventDefault();
+    openProjectButton.click();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    runProjectAction(saveNote);
+    return;
+  }
   if (!isPreviewShortcut(event)) return;
   event.preventDefault();
   event.stopImmediatePropagation();

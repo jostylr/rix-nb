@@ -10,16 +10,29 @@
       <header class="toolbar">
         <div>
           <p class="eyebrow">RiX Notebook</p>
-          <h1>Hello Markdown</h1>
+          <h1 id="workspace-title">Scratch note</h1>
         </div>
         <div class="toolbar-actions">
           <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
+          <button id="new-project" type="button">New project</button>
+          <button id="open-project" type="button">Open project</button>
           <button id="toggle-right-pane" type="button" title="Show rendered preview (⌘⇧P)" aria-pressed="false">Show preview</button>
           <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run notebook</button>
         </div>
       </header>
 
       <section class="workspace" aria-label="Markdown workspace">
+        <aside id="project-sidebar" class="project-sidebar" aria-label="Project files" hidden>
+          <div class="sidebar-heading">
+            <span class="pane-title">Project</span>
+            <button id="save-note" type="button" title="Save note (⌘S)">Save</button>
+          </div>
+          <div id="project-tree" class="project-tree"></div>
+          <div class="sidebar-actions">
+            <button id="new-notebook" type="button">New notebook</button>
+            <button id="new-note" type="button">New note</button>
+          </div>
+        </aside>
         <section class="pane editor-pane" aria-label="Markdown editor">
           <span class="pane-title">Markdown</span>
           <div id="markdown-editor"># Welcome to RiX Notebook
@@ -62,6 +75,26 @@ perimeter;
         </section>
       </section>
     </main>
+
+    <dialog id="name-dialog" class="app-dialog">
+      <form method="dialog">
+        <h2 id="name-dialog-title">Create</h2>
+        <label id="name-dialog-label" for="name-dialog-input">Name</label>
+        <input id="name-dialog-input" name="name" required />
+        <div class="dialog-actions">
+          <button value="cancel" type="submit" class="secondary-button">Cancel</button>
+          <button value="confirm" type="submit">Continue</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="message-dialog" class="app-dialog">
+      <form method="dialog">
+        <h2 id="message-dialog-title">RiX Notebook</h2>
+        <p id="message-dialog-body"></p>
+        <div class="dialog-actions"><button value="confirm" type="submit">OK</button></div>
+      </form>
+    </dialog>
 
     <script type="module" src="/src/main.js"></script>
   </body>

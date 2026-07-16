@@ -18,6 +18,29 @@ shown with its source line, and selecting a result returns the editor to that
 line. Use the Preview button or `Cmd-Shift-P` to swap that pane for the rendered
 Markdown preview, which includes the current RiX statement results.
 
+## Project files
+
+Use **New project** to choose a parent folder and create this portable layout:
+
+```text
+Project/
+  project.toml
+  Notebook/
+    notebook.toml
+    index.md
+  assets/
+    right-triangle.svg
+```
+
+`project.toml` contains an ordered list of notebook manifests; each
+`notebook.toml` contains an ordered list of note paths. The project bar creates,
+selects, opens, and saves those files. `Cmd-S` saves the active note.
+
+The preview renders `$inline$`, `$$display$$`, `\\(inline\\)`, and
+`\\[display\\]` mathematics with KaTeX. Relative Markdown image paths resolve
+from the active note and are served through Tauri's asset protocol, so normal
+SVG project assets display in the native preview.
+
 ## Development setup
 
 The project uses Bun for JavaScript tooling and Tauri 2 for the native macOS
@@ -77,3 +100,7 @@ RiX is bundled into the WebView directly from the sibling `rix` source tree.
 The first notebook runtime deliberately does not support RiX filesystem/script
 imports; project-aware module imports will be introduced through a constrained
 notebook module resolver rather than Node APIs.
+
+The next project-management slice adds Tauri's dialog and filesystem plugins.
+These are used only after a user selects a project folder; the application does
+not receive a blanket home-directory filesystem scope.
