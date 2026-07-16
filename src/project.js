@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs";
 
 const PROJECT_FILE = "project.toml";
 const NOTEBOOK_FILE = "notebook.toml";
@@ -194,5 +194,27 @@ export class ProjectManager {
     notebook.notes.push(filename);
     await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
     return this.selectNote(path);
+  }
+
+  async renameNote(path, title) {
+    const notebook = [...this.notebooks.values()].find((candidate) => path.startsWith(`${dirname(candidate.path)}/`));
+    if (!notebook) throw new Error("Note does not belong to this project");
+    const oldName = path.slice(path.lastIndexOf("/") + 1);
+    const newName = `${slug(title, "note")}.md`;
+    const newPath = joinPath(dirname(path), newName);
+    if (newPath !== path && await exists(newPath)) throw new Error(`A note already exists at ${newPath}`);
+    if (newPath !== path) await rename(path, newPath);
+    notebook.notes = notebook.notes.map((note) => note === oldName ? newName : note);
+    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
+    if (this.currentNotePath === path) this.currentNotePath = newPath;
+    return this.selectNote(newPath);
+  }
+
+  async renameNotebook(path, title) {
+    const notebook = this.notebooks.get(path);
+    if (!notebook) throw new Error("Notebook does not belong to this project");
+    notebook.title = title;
+    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
+    return this.selectNotebook(path);
   }
 }

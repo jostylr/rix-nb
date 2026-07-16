@@ -345,14 +345,54 @@ function setDocument(source) {
   editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: source } });
   loadingDocument = false;
   dirty = false;
+  updateSaveButton();
   latestRuns = [];
   renderMarkdown(source);
   runNotebook();
 }
 
+function updateSaveButton() {
+  saveNoteButton.disabled = !projects.isOpen || !dirty;
+}
+
+function enableTreeRename(button, initialValue, renameAction) {
+  button.addEventListener("dblclick", () => {
+    const input = document.createElement("input");
+    input.className = "tree-rename";
+    input.value = initialValue;
+    let finished = false;
+    const finish = (commit) => {
+      if (finished) return;
+      finished = true;
+      if (!commit || !input.value.trim()) {
+        refreshProjectControls();
+        return;
+      }
+      runProjectAction(async () => {
+        if (dirty) await saveNote();
+        await loadNote(await renameAction(input.value.trim()));
+      });
+    };
+    input.addEventListener("blur", () => finish(true));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    button.replaceWith(input);
+    input.focus();
+    input.select();
+  });
+}
+
 function refreshProjectControls() {
   const open = projects.isOpen;
-  saveNoteButton.disabled = !open;
+  updateSaveButton();
   newNotebookButton.disabled = !open;
   newNoteButton.disabled = !open;
   projectSidebar.hidden = !open;
@@ -373,6 +413,7 @@ function refreshProjectControls() {
       if (dirty) await saveNote();
       await loadNote(await projects.selectNotebook(notebook.path));
     }));
+    enableTreeRename(notebookButton, notebook.title, (title) => projects.renameNotebook(notebook.path, title));
     projectTree.append(notebookButton);
 
     const manifest = projects.notebooks.get(notebook.path);
@@ -387,6 +428,7 @@ function refreshProjectControls() {
         if (dirty) await saveNote();
         await loadNote(await projects.selectNote(path));
       }));
+      enableTreeRename(noteButton, relativePath.replace(/\.md$/, ""), (title) => projects.renameNote(path, title));
       projectTree.append(noteButton);
     }
   }
@@ -397,6 +439,7 @@ async function saveNote() {
   if (!projects.isOpen) return;
   await projects.saveCurrentNote(editor.state.doc.toString());
   dirty = false;
+  updateSaveButton();
   setStatus("Saved");
 }
 
@@ -449,6 +492,7 @@ const editor = new EditorView({
         renderMarkdown(update.state.doc.toString());
         if (!loadingDocument) {
           dirty = true;
+          updateSaveButton();
           setStatus(projects.isOpen ? "Edited · ⌘S to save" : "Edited · run notebook to refresh results");
         }
       }),
@@ -487,6 +531,16 @@ window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && !event.shiftKey) {
     event.preventDefault();
     newProjectButton.click();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    newNotebookButton.click();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "a") {
+    event.preventDefault();
+    newNoteButton.click();
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
