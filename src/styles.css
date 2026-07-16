@@ -88,6 +88,12 @@ button:focus-visible {
   font-size: 0.75rem;
 }
 
+.sidebar-heading #new-notebook {
+  padding: 0.2rem 0.35rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .sidebar-icon-actions {
   display: flex;
   gap: 0.25rem;
@@ -118,13 +124,50 @@ button:focus-visible {
 }
 
 .project-tree .tree-notebook {
-  margin-top: 0.45rem;
-  padding: 0.4rem 0.45rem;
+  margin: 0;
+  padding: 0.4rem 0.3rem;
   font-weight: 700;
+}
+
+.tree-notebook-row {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  align-items: center;
+  margin-top: 0.45rem;
+}
+
+.project-tree .tree-collapse {
+  padding: 0.25rem 0;
+  color: #4d6688;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.project-tree .tree-collapse:hover {
+  background: #d9e5f3;
+}
+
+.tree-note-list {
+  display: grid;
+  gap: 0.15rem;
 }
 
 .project-tree .tree-note {
   padding: 0.35rem 0.45rem 0.35rem 1.15rem;
+}
+
+.project-tree .tree-manifest {
+  padding: 0.32rem 0.45rem;
+  color: #746d62;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.project-tree .tree-notebook-manifest {
+  padding-left: 1.15rem;
 }
 
 
@@ -274,6 +317,127 @@ h1 {
   border-radius: 4px;
   font: inherit;
   font-size: 0.82rem;
+}
+
+.file-context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 11rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  color: #28313c;
+  background: #fffefa;
+  border: 1px solid #c9c5bc;
+  border-radius: 7px;
+  box-shadow: 0 10px 25px rgb(31 53 88 / 18%);
+}
+
+.file-context-menu button {
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  color: #28313c;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.file-context-menu button:hover {
+  background: #d9e5f3;
+}
+
+.file-context-menu hr {
+  height: 1px;
+  margin: 0.3rem 0;
+  border: 0;
+  background: #e1ded6;
+}
+
+.file-context-menu .danger-menu-item,
+.danger-button {
+  color: #9e2c2c;
+}
+
+.file-context-menu .danger-menu-item:hover {
+  background: #f9e5e2;
+}
+
+.app-dialog select,
+.app-dialog fieldset {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.45rem;
+  color: #28313c;
+  background: #fffefa;
+  border: 1px solid #c9c5bc;
+  border-radius: 5px;
+  font: inherit;
+}
+
+.app-dialog fieldset {
+  display: grid;
+  gap: 0.4rem;
+  margin: 1rem 0 0;
+}
+
+.app-dialog fieldset label,
+.quick-export-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #4b4a46;
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.app-dialog input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}
+
+.app-dialog .dialog-hint {
+  margin: 0.9rem 0 0;
+  color: #716e67;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.app-notice {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 30;
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+  max-width: min(38rem, calc(100vw - 2rem));
+  padding: 0.75rem 0.85rem 0.75rem 1rem;
+  color: #7d2722;
+  background: #fbe8e6;
+  border: 1px solid #e9bdb8;
+  border-radius: 7px;
+  box-shadow: 0 0.5rem 1.5rem rgb(77 39 36 / 16%);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.app-notice button {
+  flex: 0 0 auto;
+  padding: 0 0.1rem;
+  color: #8e302a;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.app-notice button:hover {
+  color: #67201d;
+  background: transparent;
 }
 
 #markdown-editor {

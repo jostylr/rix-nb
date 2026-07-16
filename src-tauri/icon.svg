@@ -1,6 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="226" fill="#1f3558"/>
-  <path d="M292 214h328c61 0 112 50 112 112v393c0 50-41 91-91 91H335c-61 0-111-50-111-111V282c0-38 30-68 68-68Z" fill="#fffefa"/>
-  <path d="M326 330h304M326 414h240M326 498h192" stroke="#9bb8dc" stroke-width="30" stroke-linecap="round"/>
-  <text x="512" y="712" fill="#1f3558" font-family="Georgia, serif" font-size="260" font-weight="bold" text-anchor="middle">R</text>
+  <rect width="1024" height="1024" rx="226" fill="#ffffff"/>
+  <image href="../../rix/documentation/rix-logo.png" x="72" y="294" width="880" height="405" preserveAspectRatio="xMidYMid meet"/>
 </svg>

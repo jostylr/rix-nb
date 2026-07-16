@@ -5,7 +5,10 @@ import { markdown } from "@codemirror/lang-markdown";
 import MarkdownIt from "markdown-it";
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/dist/katex.min.css";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { copyFile, mkdir, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
   Context,
   createDefaultRegistry,
@@ -32,6 +35,7 @@ const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
 const status = document.querySelector("#document-status");
 const workspaceTitle = document.querySelector("#workspace-title");
 const workspace = document.querySelector(".workspace");
+const editorKind = document.querySelector("#editor-kind");
 const newProjectButton = document.querySelector("#new-project");
 const openProjectButton = document.querySelector("#open-project");
 const saveNoteButton = document.querySelector("#save-note");
@@ -46,17 +50,37 @@ const nameDialogInput = document.querySelector("#name-dialog-input");
 const messageDialog = document.querySelector("#message-dialog");
 const messageDialogTitle = document.querySelector("#message-dialog-title");
 const messageDialogBody = document.querySelector("#message-dialog-body");
+const confirmDialog = document.querySelector("#confirm-dialog");
+const confirmDialogTitle = document.querySelector("#confirm-dialog-title");
+const confirmDialogBody = document.querySelector("#confirm-dialog-body");
+const fileContextMenu = document.querySelector("#file-context-menu");
+const exportDialog = document.querySelector("#export-dialog");
+const exportScopeSelect = document.querySelector("#export-scope");
+const exportNotebookLabel = document.querySelector("#export-notebook-label");
+const exportNotebookSelect = document.querySelector("#export-notebook");
+const exportMarkdown = document.querySelector("#export-markdown");
+const exportHtml = document.querySelector("#export-html");
+const setQuickExport = document.querySelector("#set-quick-export");
+const appNotice = document.querySelector("#app-notice");
+const appNoticeMessage = document.querySelector("#app-notice-message");
+const closeAppNoticeButton = document.querySelector("#close-app-notice");
 const projects = new ProjectManager();
 let latestRuns = [];
 let activeRightPane = "results";
 let loadingDocument = false;
 let dirty = false;
+let fileContext = null;
+let activeDocument = { kind: "note", path: null };
+const collapsedNotebooks = new Set();
 
 const markdownRenderer = new MarkdownIt({
   html: false,
   linkify: true,
   typographer: true,
 });
+
+const exportMarkdownRenderer = new MarkdownIt({ html: false, linkify: true, typographer: true });
+const KATEX_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}katex/`, window.location.origin);
 
 const defaultFenceRenderer = markdownRenderer.renderer.rules.fence;
 const defaultImageRenderer = markdownRenderer.renderer.rules.image;
@@ -68,6 +92,22 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function pathJoin(...parts) {
+  return parts.filter(Boolean).join("/").replace(/\/{2,}/g, "/");
+}
+
+function pathDirectory(path) {
+  return path.slice(0, path.lastIndexOf("/")) || ".";
+}
+
+function pathRelative(root, path) {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.split("/").at(-1);
+}
+
+function pathSlug(value, fallback = "export") {
+  return value.trim().replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || fallback;
 }
 
 markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
@@ -317,7 +357,7 @@ function handleRunShortcut(event) {
 }
 
 function isPreviewShortcut(event) {
-  return (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p";
+  return (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p";
 }
 
 function setRightPane(pane) {
@@ -327,8 +367,8 @@ function setRightPane(pane) {
   outputPane.hidden = showPreview;
   toggleRightPaneButton.textContent = showPreview ? "Show results" : "Show preview";
   toggleRightPaneButton.title = showPreview
-    ? "Show RiX results (⌘⇧P)"
-    : "Show rendered preview (⌘⇧P)";
+    ? "Show RiX results (⌘P or ⌘⇧P)"
+    : "Show rendered preview (⌘P or ⌘⇧P)";
   toggleRightPaneButton.setAttribute("aria-pressed", String(showPreview));
 }
 
@@ -338,6 +378,16 @@ function toggleRightPane() {
 
 function setStatus(message) {
   status.textContent = message;
+  hideError();
+}
+
+function showError(message) {
+  appNoticeMessage.textContent = message;
+  appNotice.hidden = false;
+}
+
+function hideError() {
+  appNotice.hidden = true;
 }
 
 function setDocument(source) {
@@ -355,8 +405,26 @@ function updateSaveButton() {
   saveNoteButton.disabled = !projects.isOpen || !dirty;
 }
 
+function addDelayedTreeSelection(button, selectAction) {
+  button.addEventListener("click", () => {
+    cancelDelayedTreeSelection(button);
+    const timer = window.setTimeout(() => {
+      button.dataset.selectionTimer = "";
+      runProjectAction(selectAction);
+    }, 225);
+    button.dataset.selectionTimer = String(timer);
+  });
+}
+
+function cancelDelayedTreeSelection(button) {
+  if (!button.dataset.selectionTimer) return;
+  window.clearTimeout(Number(button.dataset.selectionTimer));
+  button.dataset.selectionTimer = "";
+}
+
 function enableTreeRename(button, initialValue, renameAction) {
   button.addEventListener("dblclick", () => {
+    cancelDelayedTreeSelection(button);
     const input = document.createElement("input");
     input.className = "tree-rename";
     input.value = initialValue;
@@ -390,6 +458,231 @@ function enableTreeRename(button, initialValue, renameAction) {
   });
 }
 
+function showFileContextMenu(event, context) {
+  event.preventDefault();
+  fileContext = context;
+  fileContextMenu.hidden = false;
+  const width = fileContextMenu.offsetWidth;
+  const height = fileContextMenu.offsetHeight;
+  fileContextMenu.style.left = `${Math.min(event.clientX, window.innerWidth - width - 8)}px`;
+  fileContextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - height - 8)}px`;
+}
+
+function hideFileContextMenu() {
+  fileContextMenu.hidden = true;
+  fileContext = null;
+}
+
+function requestConfirmation({ title, message, confirmLabel = "Delete" }) {
+  return new Promise((resolve) => {
+    confirmDialogTitle.textContent = title;
+    confirmDialogBody.textContent = message;
+    confirmDialog.querySelector("button[value=confirm]").textContent = confirmLabel;
+    confirmDialog.addEventListener("close", () => resolve(confirmDialog.returnValue === "confirm"), { once: true });
+    confirmDialog.showModal();
+  });
+}
+
+async function saveAndCommitCurrentNote() {
+  if (!projects.isOpen || !projects.currentNotePath) throw new Error("Open a project note before committing");
+  await saveNote();
+  await commitProjectNote(projects.currentNotePath, projects.currentNotePath.split("/").at(-1));
+}
+
+function updateExportNotebookChoice() {
+  const notebookScope = exportScopeSelect.value === "notebook";
+  exportNotebookLabel.hidden = !notebookScope;
+  exportNotebookSelect.hidden = !notebookScope;
+  setQuickExport.disabled = exportScopeSelect.value === "note";
+  if (setQuickExport.disabled) setQuickExport.checked = false;
+}
+
+function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
+  if (!projects.isOpen) throw new Error("Open a project before exporting");
+  if (scope === "note") return [projects.currentNotePath];
+  const notebooks = scope === "project"
+    ? [...projects.notebooks.values()]
+    : [projects.notebooks.get(notebookPath)];
+  return notebooks.flatMap((notebook) => {
+    if (!notebook) return [];
+    return notebook.notes.map((note) => pathJoin(pathDirectory(notebook.path), note));
+  });
+}
+
+function staticHtmlDocument(title, source, katexStylesheetPath) {
+  const holder = document.createElement("article");
+  holder.innerHTML = exportMarkdownRenderer.render(source);
+  renderMathInElement(holder, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "$", right: "$", display: false },
+      { left: "\\(", right: "\\)", display: false },
+      { left: "\\[", right: "\\]", display: true },
+    ],
+    throwOnError: false,
+  });
+  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><style>body{max-width:52rem;margin:3rem auto;padding:0 1.25rem;color:#202124;font-family:system-ui,sans-serif;line-height:1.55}pre{overflow:auto;padding:1rem;background:#f4f2ec;border-radius:6px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #9bb8dc;color:#4d5867}</style></head><body>${holder.innerHTML}</body></html>\n`;
+}
+
+function katexStylesheetForPage(relativeHtmlPath) {
+  const parent = pathDirectory(relativeHtmlPath);
+  const up = parent === "." ? [] : parent.split("/").filter(Boolean).map(() => "..");
+  return [...up, "assets", "katex", "katex.min.css"].join("/");
+}
+
+async function copyKatexAssets(exportRoot) {
+  const stylesheetResponse = await fetch(new URL("katex.min.css", KATEX_PUBLIC_ROOT));
+  if (!stylesheetResponse.ok) throw new Error("Could not load KaTeX stylesheet for export");
+  const stylesheet = await stylesheetResponse.text();
+  const assetRoot = pathJoin(exportRoot, "assets/katex");
+  await mkdir(pathJoin(assetRoot, "fonts"), { recursive: true });
+  await writeTextFile(pathJoin(assetRoot, "katex.min.css"), stylesheet);
+
+  const fontNames = new Set([...stylesheet.matchAll(/url\(fonts\/([^)]*\.woff2)\)/g)].map((match) => match[1]));
+  for (const fontName of fontNames) {
+    const response = await fetch(new URL(`fonts/${fontName}`, KATEX_PUBLIC_ROOT));
+    if (!response.ok) throw new Error(`Could not load KaTeX font ${fontName} for export`);
+    await writeFile(pathJoin(assetRoot, "fonts", fontName), new Uint8Array(await response.arrayBuffer()));
+  }
+}
+
+function markdownImageSources(source) {
+  return [...source.matchAll(/!\[[^\]]*\]\(([^\s)]+)(?:\s+[^)]*)?\)/g)]
+    .map((match) => match[1])
+    .filter((path) => path && !/^(?:[a-z]+:|\/)/i.test(path));
+}
+
+function projectPathForRelativeNote(notePath, source) {
+  const resolved = [];
+  for (const part of [...pathRelative(projects.project.directory, pathDirectory(notePath)).split("/"), ...source.split("/")]) {
+    if (!part || part === ".") continue;
+    if (part === "..") resolved.pop();
+    else resolved.push(part);
+  }
+  return pathJoin(projects.project.directory, ...resolved);
+}
+
+async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, quick = false }) {
+  if (!includeMarkdown && !includeHtml) throw new Error("Choose at least one export output");
+  if (dirty) await saveNote();
+  const destination = await openDialog({
+    title: quick ? "Choose a folder for quick export" : "Choose an export destination folder",
+    directory: true,
+    multiple: false,
+    recursive: true,
+  });
+  if (!destination || Array.isArray(destination)) return;
+
+  const notes = getScopeNotes(scope, notebookPath);
+  if (!notes.length) throw new Error("There are no notes to export");
+  const scopeName = scope === "project"
+    ? projects.project.title
+    : scope === "note"
+      ? projects.currentNotePath.split("/").at(-1).replace(/\.md$/, "")
+      : projects.notebooks.get(notebookPath)?.title || "notebook";
+  const exportRoot = pathJoin(destination, `${pathSlug(scopeName)}-export`);
+  await mkdir(exportRoot, { recursive: true });
+  if (includeHtml) await copyKatexAssets(exportRoot);
+
+  const copiedAssets = new Set();
+  for (const notePath of notes) {
+    const source = await readTextFile(notePath);
+    const relativePath = pathRelative(projects.project.directory, notePath);
+    const destinationBase = pathJoin(exportRoot, relativePath.replace(/\.md$/, ""));
+    if (includeMarkdown) {
+      const markdownPath = pathJoin(exportRoot, relativePath);
+      await mkdir(pathDirectory(markdownPath), { recursive: true });
+      await writeTextFile(markdownPath, source);
+    }
+    if (includeHtml) {
+      const htmlPath = `${destinationBase}.html`;
+      await mkdir(pathDirectory(htmlPath), { recursive: true });
+      await writeTextFile(
+        htmlPath,
+        staticHtmlDocument(
+          notePath.split("/").at(-1).replace(/\.md$/, ""),
+          source,
+          katexStylesheetForPage(relativePath.replace(/\.md$/, ".html")),
+        ),
+      );
+    }
+    for (const sourcePath of markdownImageSources(source)) {
+      const assetPath = projectPathForRelativeNote(notePath, sourcePath);
+      const relativeAssetPath = pathRelative(projects.project.directory, assetPath);
+      if (copiedAssets.has(relativeAssetPath) || assetPath === relativeAssetPath) continue;
+      copiedAssets.add(relativeAssetPath);
+      const assetDestination = pathJoin(exportRoot, relativeAssetPath);
+      try {
+        await mkdir(pathDirectory(assetDestination), { recursive: true });
+        await copyFile(assetPath, assetDestination);
+      } catch {
+        // A missing or externally referenced asset should not prevent text export.
+      }
+    }
+  }
+  setStatus(`Exported ${notes.length} note${notes.length === 1 ? "" : "s"}`);
+  messageDialogTitle.textContent = "Export complete";
+  messageDialogBody.textContent = `Wrote the selected output to ${exportRoot}.`;
+  messageDialog.showModal();
+}
+
+function openExportDialog() {
+  if (!projects.isOpen) {
+    runProjectAction(async () => { throw new Error("Open a project before exporting"); });
+    return;
+  }
+  exportNotebookSelect.replaceChildren();
+  for (const notebook of projects.notebookList) {
+    const option = document.createElement("option");
+    option.value = notebook.path;
+    option.textContent = notebook.title;
+    option.selected = notebook.path === projects.currentNotebookPath;
+    exportNotebookSelect.append(option);
+  }
+  exportScopeSelect.value = "note";
+  exportMarkdown.checked = true;
+  exportHtml.checked = true;
+  setQuickExport.checked = false;
+  updateExportNotebookChoice();
+  exportDialog.showModal();
+}
+
+function quickExport() {
+  if (!projects.isOpen) {
+    runProjectAction(async () => { throw new Error("Open a project before exporting"); });
+    return;
+  }
+  runProjectAction(() => exportScope({
+    scope: projects.project.quickExportScope,
+    notebookPath: projects.currentNotebookPath,
+    includeMarkdown: true,
+    includeHtml: true,
+    quick: true,
+  }));
+}
+
+async function renameProjectNote(path, currentTitle) {
+  const title = await requestName({ title: "Rename note", label: "Note title", value: currentTitle.replace(/\.md$/, "") });
+  if (!title) return;
+  if (dirty) await saveNote();
+  await loadNote(await projects.renameNote(path, title));
+}
+
+async function commitProjectNote(path, title) {
+  if (dirty && path === projects.currentNotePath) await saveNote();
+  const message = await requestName({ title: "Commit note", label: `Commit message for ${title}`, value: `Update ${title.replace(/\.md$/, "")}` });
+  if (!message) return;
+  const result = await invoke("git_commit_note", {
+    projectRoot: projects.project.directory,
+    notePath: path,
+    message,
+  });
+  setStatus("Committed note");
+  messageDialogTitle.textContent = "Git commit created";
+  messageDialogBody.textContent = result;
+  messageDialog.showModal();
+}
+
 function refreshProjectControls() {
   const open = projects.isOpen;
   updateSaveButton();
@@ -403,20 +696,56 @@ function refreshProjectControls() {
   }
 
   projectTree.replaceChildren();
+  const projectManifest = document.createElement("button");
+  projectManifest.type = "button";
+  projectManifest.className = "tree-manifest";
+  projectManifest.textContent = "project.toml";
+  projectManifest.setAttribute("aria-current", String(activeDocument.kind === "toml" && activeDocument.path === projects.project.path));
+  addDelayedTreeSelection(projectManifest, () => loadToml(projects.project.path, "Project manifest"));
+  projectTree.append(projectManifest);
+  collapsedNotebooks.delete(projects.currentNotebookPath);
   for (const notebook of projects.notebookList) {
+    const notebookEntry = document.createElement("section");
+    notebookEntry.className = "tree-notebook-entry";
+    const notebookRow = document.createElement("div");
+    notebookRow.className = "tree-notebook-row";
+    const expanded = !collapsedNotebooks.has(notebook.path);
+    const collapseButton = document.createElement("button");
+    collapseButton.type = "button";
+    collapseButton.className = "tree-collapse";
+    collapseButton.textContent = expanded ? "▾" : "▸";
+    collapseButton.title = expanded ? "Collapse notebook" : "Expand notebook";
+    collapseButton.setAttribute("aria-label", collapseButton.title);
+    collapseButton.setAttribute("aria-expanded", String(expanded));
+    collapseButton.addEventListener("click", () => {
+      if (collapsedNotebooks.has(notebook.path)) collapsedNotebooks.delete(notebook.path);
+      else collapsedNotebooks.add(notebook.path);
+      refreshProjectControls();
+    });
     const notebookButton = document.createElement("button");
     notebookButton.type = "button";
     notebookButton.className = "tree-notebook";
     notebookButton.textContent = notebook.title;
     notebookButton.setAttribute("aria-current", String(notebook.path === projects.currentNotebookPath));
-    notebookButton.addEventListener("click", () => runProjectAction(async () => {
+    addDelayedTreeSelection(notebookButton, async () => {
       if (dirty) await saveNote();
       await loadNote(await projects.selectNotebook(notebook.path));
-    }));
+    });
     enableTreeRename(notebookButton, notebook.title, (title) => projects.renameNotebook(notebook.path, title));
-    projectTree.append(notebookButton);
+    notebookRow.append(collapseButton, notebookButton);
+    notebookEntry.append(notebookRow);
 
     const manifest = projects.notebooks.get(notebook.path);
+    const noteList = document.createElement("div");
+    noteList.className = "tree-note-list";
+    noteList.hidden = !expanded;
+    const notebookManifest = document.createElement("button");
+    notebookManifest.type = "button";
+    notebookManifest.className = "tree-manifest tree-notebook-manifest";
+    notebookManifest.textContent = "notebook.toml";
+    notebookManifest.setAttribute("aria-current", String(activeDocument.kind === "toml" && activeDocument.path === notebook.path));
+    addDelayedTreeSelection(notebookManifest, () => loadToml(notebook.path, `${notebook.title} manifest`));
+    noteList.append(notebookManifest);
     for (const relativePath of manifest.notes) {
       const path = `${notebook.path.slice(0, notebook.path.lastIndexOf("/"))}/${relativePath}`;
       const noteButton = document.createElement("button");
@@ -424,29 +753,47 @@ function refreshProjectControls() {
       noteButton.className = "tree-note";
       noteButton.textContent = relativePath;
       noteButton.setAttribute("aria-current", String(path === projects.currentNotePath));
-      noteButton.addEventListener("click", () => runProjectAction(async () => {
+      addDelayedTreeSelection(noteButton, async () => {
         if (dirty) await saveNote();
         await loadNote(await projects.selectNote(path));
-      }));
+      });
       enableTreeRename(noteButton, relativePath.replace(/\.md$/, ""), (title) => projects.renameNote(path, title));
-      projectTree.append(noteButton);
+      noteButton.addEventListener("contextmenu", (event) => showFileContextMenu(event, { path, title: relativePath }));
+      noteList.append(noteButton);
     }
+    notebookEntry.append(noteList);
+    projectTree.append(notebookEntry);
   }
   workspaceTitle.textContent = projects.project.title;
 }
 
 async function saveNote() {
   if (!projects.isOpen) return;
-  await projects.saveCurrentNote(editor.state.doc.toString());
+  if (activeDocument.kind === "toml") {
+    await projects.saveManifest(activeDocument.path, editor.state.doc.toString());
+  } else {
+    await projects.saveCurrentNote(editor.state.doc.toString());
+  }
   dirty = false;
   updateSaveButton();
-  setStatus("Saved");
+  setStatus(activeDocument.kind === "toml" ? "Saved manifest" : "Saved");
+  refreshProjectControls();
 }
 
 async function loadNote(note) {
+  activeDocument = { kind: "note", path: note.path };
+  editorKind.textContent = "Markdown";
   setDocument(note.source);
   refreshProjectControls();
   setStatus(`Opened ${note.path.split("/").at(-1)}`);
+}
+
+async function loadToml(path, label) {
+  activeDocument = { kind: "toml", path };
+  editorKind.textContent = "TOML";
+  setDocument(await readTextFile(path));
+  refreshProjectControls();
+  setStatus(`Opened ${label}`);
 }
 
 async function runProjectAction(action) {
@@ -454,10 +801,7 @@ async function runProjectAction(action) {
     await action();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus(message);
-    messageDialogTitle.textContent = "Project error";
-    messageDialogBody.textContent = message;
-    messageDialog.showModal();
+    showError(message);
   }
 }
 
@@ -474,6 +818,10 @@ function requestName({ title, label, value }) {
     nameDialogInput.select();
   });
 }
+
+document.querySelectorAll(".app-dialog button[value=cancel]").forEach((button) => {
+  button.addEventListener("click", () => button.closest("dialog").close("cancel"));
+});
 
 const editor = new EditorView({
   state: EditorState.create({
@@ -526,11 +874,75 @@ newNoteButton.addEventListener("click", () => runProjectAction(async () => {
   const note = await projects.createNote(title);
   await loadNote(note);
 }));
+exportScopeSelect.addEventListener("change", updateExportNotebookChoice);
+exportDialog.addEventListener("close", () => {
+  if (exportDialog.returnValue !== "confirm") return;
+  const scope = exportScopeSelect.value;
+  const notebookPath = exportNotebookSelect.value || projects.currentNotebookPath;
+  runProjectAction(async () => {
+    if (setQuickExport.checked) {
+      await projects.setQuickExportScope(scope === "project" ? "project" : "notebook");
+    }
+    await exportScope({
+      scope,
+      notebookPath,
+      includeMarkdown: exportMarkdown.checked,
+      includeHtml: exportHtml.checked,
+    });
+  });
+});
+fileContextMenu.addEventListener("click", (event) => {
+  const action = event.target.closest("button")?.dataset.fileAction;
+  const context = fileContext;
+  hideFileContextMenu();
+  if (!action || !context) return;
+  runProjectAction(async () => {
+    if (action === "rename") await renameProjectNote(context.path, context.title);
+    if (action === "commit") await commitProjectNote(context.path, context.title);
+    if (action === "delete") {
+      const confirmed = await requestConfirmation({
+        title: "Move note to Trash?",
+        message: `Move ${context.title} to the macOS Trash? You can restore it from there.`,
+        confirmLabel: "Move to Trash",
+      });
+      if (!confirmed) return;
+      if (dirty && context.path === projects.currentNotePath) dirty = false;
+      await invoke("move_note_to_trash", {
+        projectRoot: projects.project.directory,
+        notePath: context.path,
+      });
+      const nextNote = await projects.deleteNote(context.path);
+      if (nextNote) await loadNote(nextNote);
+      else refreshProjectControls();
+      setStatus(`Moved ${context.title} to the Trash`);
+    }
+  });
+});
+window.addEventListener("click", hideFileContextMenu);
+window.addEventListener("resize", hideFileContextMenu);
+closeAppNoticeButton.addEventListener("click", hideError);
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideFileContextMenu();
+});
+listen("menu-command", (event) => {
+  const commands = {
+    "new-project": () => newProjectButton.click(),
+    "open-project": () => openProjectButton.click(),
+    "save-note": () => saveNoteButton.click(),
+    "save-and-commit": () => runProjectAction(saveAndCommitCurrentNote),
+    "new-notebook": () => newNotebookButton.click(),
+    "new-note": () => newNoteButton.click(),
+    "toggle-right-pane": toggleRightPane,
+    export: () => openExportDialog(),
+    "quick-export": () => quickExport(),
+  };
+  commands[event.payload]?.();
+});
 window.addEventListener("keydown", (event) => {
   if (handleRunShortcut(event)) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && !event.shiftKey) {
     event.preventDefault();
-    newProjectButton.click();
+    newNoteButton.click();
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "n") {
@@ -540,7 +952,7 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "a") {
     event.preventDefault();
-    newNoteButton.click();
+    newProjectButton.click();
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
@@ -551,7 +963,13 @@ window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     event.stopImmediatePropagation();
-    runProjectAction(saveNote);
+    runProjectAction(event.shiftKey ? saveAndCommitCurrentNote : saveNote);
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+    event.preventDefault();
+    if (event.shiftKey) quickExport();
+    else openExportDialog();
     return;
   }
   if (!isPreviewShortcut(event)) return;

@@ -14,9 +14,9 @@
         </div>
         <div class="toolbar-actions">
           <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
-          <button id="new-project" type="button" title="New project (⌘N)">New project</button>
+          <button id="new-project" type="button" title="New project (⌘⇧A)">New project</button>
           <button id="open-project" type="button" title="Open project (⌘O)">Open project</button>
-          <button id="toggle-right-pane" type="button" title="Show rendered preview (⌘⇧P)" aria-pressed="false">Show preview</button>
+          <button id="toggle-right-pane" type="button" title="Show rendered preview (⌘P or ⌘⇧P)" aria-pressed="false">Show preview</button>
           <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run notebook</button>
         </div>
       </header>
@@ -26,15 +26,15 @@
           <div class="sidebar-heading">
             <span class="pane-title">Project</span>
             <div class="sidebar-icon-actions">
-              <button id="new-notebook" type="button" title="New notebook (⌘⇧N)" aria-label="New notebook">▱</button>
-              <button id="new-note" type="button" title="New note (⌘⇧A)" aria-label="New note">＋</button>
+              <button id="new-notebook" type="button" title="New notebook (⌘⇧N)" aria-label="New notebook">📓</button>
+              <button id="new-note" type="button" title="New note (⌘N)" aria-label="New note">＋</button>
             </div>
           </div>
           <div id="project-tree" class="project-tree"></div>
         </aside>
         <section class="pane editor-pane" aria-label="Markdown editor">
           <div class="editor-heading">
-            <span class="pane-title">Markdown</span>
+            <span id="editor-kind" class="pane-title">Markdown</span>
             <button id="save-note" type="button" title="Save note (⌘S)" disabled>Save</button>
           </div>
           <div id="markdown-editor"># Welcome to RiX Notebook
@@ -84,7 +84,7 @@ perimeter;
         <label id="name-dialog-label" for="name-dialog-input">Name</label>
         <input id="name-dialog-input" name="name" required />
         <div class="dialog-actions">
-          <button value="cancel" type="submit" class="secondary-button">Cancel</button>
+          <button value="cancel" type="button" class="secondary-button">Cancel</button>
           <button value="confirm" type="submit">Continue</button>
         </div>
       </form>
@@ -97,6 +97,54 @@ perimeter;
         <div class="dialog-actions"><button value="confirm" type="submit">OK</button></div>
       </form>
     </dialog>
+
+    <dialog id="confirm-dialog" class="app-dialog">
+      <form method="dialog">
+        <h2 id="confirm-dialog-title">Confirm</h2>
+        <p id="confirm-dialog-body"></p>
+        <div class="dialog-actions">
+          <button value="cancel" type="button" class="secondary-button">Cancel</button>
+          <button value="confirm" type="submit" class="danger-button">Delete</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="export-dialog" class="app-dialog export-dialog">
+      <form method="dialog">
+        <h2>Export</h2>
+        <label for="export-scope">Content</label>
+        <select id="export-scope">
+          <option value="note">Current note</option>
+          <option value="notebook">Notebook</option>
+          <option value="project">Whole project</option>
+        </select>
+        <label id="export-notebook-label" for="export-notebook">Notebook</label>
+        <select id="export-notebook"></select>
+        <fieldset>
+          <legend>Outputs</legend>
+          <label><input id="export-markdown" type="checkbox" checked /> Markdown sources and referenced project assets</label>
+          <label><input id="export-html" type="checkbox" checked /> Static HTML pages</label>
+        </fieldset>
+        <label class="quick-export-option"><input id="set-quick-export" type="checkbox" /> Use this scope for ⌘⇧E</label>
+        <p class="dialog-hint">Choose a destination folder after continuing. RiX code remains visible as source code in this initial export.</p>
+        <div class="dialog-actions">
+          <button value="cancel" type="button" class="secondary-button">Cancel</button>
+          <button value="confirm" type="submit">Choose destination…</button>
+        </div>
+      </form>
+    </dialog>
+
+    <menu id="file-context-menu" class="file-context-menu" hidden>
+      <button type="button" data-file-action="rename">Rename…</button>
+      <button type="button" data-file-action="commit">Commit note…</button>
+      <hr />
+      <button type="button" data-file-action="delete" class="danger-menu-item">Delete note…</button>
+    </menu>
+
+    <aside id="app-notice" class="app-notice" role="alert" hidden>
+      <span id="app-notice-message"></span>
+      <button id="close-app-notice" type="button" aria-label="Dismiss error">×</button>
+    </aside>
 
     <script type="module" src="/src/main.js"></script>
   </body>
