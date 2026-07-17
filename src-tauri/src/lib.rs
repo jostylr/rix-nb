@@ -92,9 +92,15 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build()?;
     let window = SubmenuBuilder::new(app, "Window")
         .minimize().maximize().separator().close_window().build()?;
+    let help = SubmenuBuilder::new(app, "Help")
+        .item(&MenuItemBuilder::with_id("open-notebook-help", "RiX Notebook Help").accelerator("CmdOrCtrl+Shift+/").build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::with_id("open-rix-reference", "RiX Language Reference").build(app)?)
+        .item(&MenuItemBuilder::with_id("open-rix-tutorials", "RiX Tutorials").build(app)?)
+        .build()?;
     let app_menu = SubmenuBuilder::new(app, "RiX Notebook")
         .about(None).separator().services().separator().hide().hide_others().show_all().separator().quit().build()?;
-    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &window]).build()
+    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &window, &help]).build()
 }
 
 #[tauri::command]

@@ -143,6 +143,24 @@ perimeter;
       </form>
     </dialog>
 
+    <dialog id="help-dialog" class="app-dialog help-dialog">
+      <div class="help-header">
+        <div>
+          <p class="eyebrow">Help</p>
+          <h2>RiX Notebook</h2>
+        </div>
+        <div class="help-header-actions">
+          <button id="maximize-help" type="button" class="secondary-button" title="Expand help to the window" aria-pressed="false">Expand</button>
+          <button id="close-help" type="button" class="secondary-button" title="Close help (Esc)">Close</button>
+        </div>
+      </div>
+      <label class="help-topic-label" for="help-topic">Topic
+        <select id="help-topic"></select>
+      </label>
+      <a id="help-external-link" class="help-external-link" href="https://rix.ratmath.com/tutorial/" target="_blank" rel="noreferrer" hidden>Open tutorial site in browser ↗</a>
+      <article id="help-content" class="markdown-body help-content" aria-live="polite"></article>
+    </dialog>
+
     <menu id="file-context-menu" class="file-context-menu" hidden>
       <button type="button" data-file-action="rename">Rename…</button>
       <button type="button" data-file-action="commit">Commit note…</button>

@@ -59,6 +59,12 @@ const messageDialogBody = document.querySelector("#message-dialog-body");
 const confirmDialog = document.querySelector("#confirm-dialog");
 const confirmDialogTitle = document.querySelector("#confirm-dialog-title");
 const confirmDialogBody = document.querySelector("#confirm-dialog-body");
+const helpDialog = document.querySelector("#help-dialog");
+const closeHelpButton = document.querySelector("#close-help");
+const maximizeHelpButton = document.querySelector("#maximize-help");
+const helpTopic = document.querySelector("#help-topic");
+const helpContent = document.querySelector("#help-content");
+const helpExternalLink = document.querySelector("#help-external-link");
 const fileContextMenu = document.querySelector("#file-context-menu");
 const exportDialog = document.querySelector("#export-dialog");
 const exportScopeSelect = document.querySelector("#export-scope");
@@ -84,6 +90,7 @@ let renderedSliderSignature = "";
 let sidebarCollapsed = false;
 let sidebarProjectDirectory = null;
 let editorPaneRatio = null;
+let helpCatalog = null;
 const sliderOverrides = new Map();
 
 const markdownRenderer = new MarkdownIt({
@@ -94,6 +101,7 @@ const markdownRenderer = new MarkdownIt({
 
 const exportMarkdownRenderer = new MarkdownIt({ html: false, linkify: true, typographer: true });
 const KATEX_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}katex/`, window.location.origin);
+const HELP_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}help/`, window.location.origin);
 
 const defaultFenceRenderer = markdownRenderer.renderer.rules.fence;
 const defaultImageRenderer = markdownRenderer.renderer.rules.image;
@@ -130,13 +138,17 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
   if (language !== "rix") return code;
 
   const run = env.rixRuns?.[env.rixCellIndex++] || null;
-  if (!run || run.statements.length === 0) return `<div class="rix-preview-cell">${code}</div>`;
+  const metadata = run?.metadata || parseFenceMetadata(token.info.trim().replace(/^rix(?:\s+|$)/i, ""));
+  const renderedCode = metadata.showCode ? code : "";
+  if (!run || run.statements.length === 0 || !metadata.showOutput) {
+    return renderedCode ? `<div class="rix-preview-cell">${renderedCode}</div>` : "";
+  }
 
   const results = run.statements.map((statement) => (
     `<div class="rix-preview-result rix-preview-result-${statement.kind}">`
       + `<span>line ${statement.line}</span><pre>${escapeHtml(statement.content)}</pre></div>`
   )).join("");
-  return `<div class="rix-preview-cell">${code}<div class="rix-preview-results">${results}</div></div>`;
+  return `<div class="rix-preview-cell">${renderedCode}<div class="rix-preview-results">${results}</div></div>`;
 };
 
 function resolveProjectAsset(source) {
@@ -180,6 +192,163 @@ function setPreviewStale(stale) {
   previewPane.classList.toggle("is-stale", stale);
 }
 
+function stripMarkdownFrontmatter(source) {
+  return source.replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+async function loadHelpCatalog() {
+  if (helpCatalog) return helpCatalog;
+  const response = await fetch(new URL("index.json", HELP_PUBLIC_ROOT));
+  if (!response.ok) throw new Error("The bundled help files are unavailable. Run bun run sync:help.");
+  helpCatalog = await response.json();
+  const groups = [
+    ["RiX Notebook", helpCatalog.notebook],
+    ["RiX documentation", helpCatalog.references],
+    ["RiX tutorials", helpCatalog.tutorials],
+  ];
+  helpTopic.replaceChildren();
+  for (const [label, entries] of groups) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.title;
+      option.dataset.helpPath = entry.path;
+      group.append(option);
+    }
+    helpTopic.append(group);
+  }
+  return helpCatalog;
+}
+
+async function showHelpTopic(id) {
+  const catalog = await loadHelpCatalog();
+  const entries = [...catalog.notebook, ...catalog.references, ...catalog.tutorials];
+  const entry = entries.find((candidate) => candidate.id === id) || entries[0];
+  helpTopic.value = entry.id;
+  helpContent.textContent = "Loading…";
+  helpContent.classList.toggle("help-content-tutorial", Boolean(entry.htmlPath || entry.url));
+  helpExternalLink.hidden = !entry.url;
+  if (entry.url) helpExternalLink.href = entry.url;
+  if (entry.htmlPath || entry.url) {
+    const tutorial = document.createElement("iframe");
+    tutorial.className = "tutorial-frame";
+    tutorial.title = entry.title;
+    tutorial.src = entry.url || new URL(entry.htmlPath, HELP_PUBLIC_ROOT).toString();
+    helpContent.replaceChildren(tutorial);
+    return;
+  }
+  const response = await fetch(new URL(entry.path, HELP_PUBLIC_ROOT));
+  if (!response.ok) throw new Error(`Could not load ${entry.title}`);
+  helpContent.innerHTML = markdownRenderer.render(stripMarkdownFrontmatter(await response.text()), { rixRuns: [], rixCellIndex: 0 });
+  renderMathInElement(helpContent, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "$", right: "$", display: false },
+      { left: "\\(", right: "\\)", display: false },
+      { left: "\\[", right: "\\]", display: true },
+    ],
+    throwOnError: false,
+  });
+}
+
+async function openHelp(section = "notebook") {
+  try {
+    const catalog = await loadHelpCatalog();
+    const firstTopic = section === "tutorials"
+      ? catalog.tutorials[0]?.id
+      : section === "rix"
+        ? catalog.references[0]?.id
+        : catalog.notebook[0]?.id;
+    if (!helpDialog.open) helpDialog.showModal();
+    await showHelpTopic(firstTopic);
+  } catch (error) {
+    helpContent.textContent = error instanceof Error ? error.message : String(error);
+    if (!helpDialog.open) helpDialog.showModal();
+  }
+}
+
+function tokenizeFenceMetadata(header) {
+  const tokens = [];
+  let index = 0;
+  while (index < header.length) {
+    while (/\s/.test(header[index] || "")) index += 1;
+    if (index >= header.length) break;
+    const start = index;
+    if (header.startsWith("static:{", index)) {
+      index += "static:".length;
+      let depth = 0;
+      let quote = null;
+      let escaped = false;
+      for (; index < header.length; index += 1) {
+        const character = header[index];
+        if (quote) {
+          if (escaped) escaped = false;
+          else if (character === "\\") escaped = true;
+          else if (character === quote) quote = null;
+          continue;
+        }
+        if (character === "\"" || character === "'") quote = character;
+        else if (character === "{") depth += 1;
+        else if (character === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            index += 1;
+            break;
+          }
+        }
+      }
+      tokens.push(header.slice(start, index));
+      continue;
+    }
+    while (index < header.length && !/\s/.test(header[index])) index += 1;
+    tokens.push(header.slice(start, index));
+  }
+  return tokens;
+}
+
+function parseFenceMetadata(header) {
+  const metadata = {
+    raw: header.trim(),
+    flags: new Set(),
+    execution: "linear",
+    live: false,
+    showCode: true,
+    showOutput: true,
+    staticExpression: null,
+    unknown: [],
+  };
+  for (const token of tokenizeFenceMetadata(header.trim())) {
+    const normalized = token.toLowerCase();
+    if (normalized === "new") {
+      metadata.flags.add("new");
+      metadata.execution = "new";
+    } else if (normalized === "refresh") {
+      metadata.flags.add("refresh");
+      metadata.execution = "refresh";
+    } else if (normalized === "expensive") {
+      metadata.flags.add("expensive");
+    } else if (normalized === "live") {
+      metadata.flags.add("live");
+      metadata.live = true;
+    } else if (normalized === "show-code") {
+      metadata.showCode = true;
+    } else if (normalized === "hide-code") {
+      metadata.showCode = false;
+    } else if (normalized === "show-output") {
+      metadata.showOutput = true;
+    } else if (normalized === "hide-output") {
+      metadata.showOutput = false;
+    } else if (token.startsWith("static:{") && token.endsWith("}")) {
+      metadata.staticExpression = token.slice("static:{".length, -1).trim();
+    } else {
+      metadata.unknown.push(token);
+    }
+  }
+  return metadata;
+}
+
 function extractRixCells(source) {
   const cells = [];
   const fencePattern = /^```rix(?:[ \t]+([^\n]*))?[ \t]*\n([\s\S]*?)^```[ \t]*$/gim;
@@ -195,7 +364,7 @@ function extractRixCells(source) {
       code: match[2],
       codeLine: line + 1,
       line,
-      options: new Set((match[1] || "").trim().split(/\s+/).filter(Boolean)),
+      metadata: parseFenceMetadata(match[1] || ""),
     });
     index += 1;
   }
@@ -268,6 +437,24 @@ function extractInlineExpressions(source) {
     index = end;
   }
   return expressions;
+}
+
+function parseNotebookDocument(source) {
+  const cells = extractRixCells(source);
+  const inlines = extractInlineExpressions(source);
+  const nodes = [
+    ...cells.map((cell) => ({ type: "cell", start: cell.start, end: cell.end, value: cell })),
+    ...inlines.map((inline) => ({ type: "inline", start: inline.start, end: inline.end, value: inline })),
+  ].sort((left, right) => left.start - right.start);
+  const content = [];
+  let cursor = 0;
+  for (const node of nodes) {
+    if (node.start > cursor) content.push({ type: "markdown", start: cursor, end: node.start, source: source.slice(cursor, node.start) });
+    content.push(node);
+    cursor = node.end;
+  }
+  if (cursor < source.length) content.push({ type: "markdown", start: cursor, end: source.length, source: source.slice(cursor) });
+  return { source, cells, inlines, nodes, content };
 }
 
 function splitTopLevelStatements(source) {
@@ -433,9 +620,9 @@ function appendOutput(statement) {
 }
 
 function executeCell(cell, runtime) {
-  const context = cell.options.has("new")
+  const context = cell.metadata.execution === "new"
     ? new Context()
-    : cell.options.has("refresh")
+    : cell.metadata.execution === "refresh"
       ? (runtime.context = new Context())
       : runtime.context;
   runtime.currentSourceId = `cell:${cell.line}`;
@@ -474,7 +661,7 @@ function executeCell(cell, runtime) {
     }
   }
 
-  return { statements };
+  return { statements, metadata: cell.metadata };
 }
 
 function executeInlineExpression(inline, runtime) {
@@ -524,24 +711,21 @@ function replaceInlineExpressions(source, inlineRuns) {
 }
 
 function executeDocument(source) {
-  const cells = extractRixCells(source);
-  const inlines = extractInlineExpressions(source);
+  const document = parseNotebookDocument(source);
+  const { cells, inlines } = document;
   const runtime = makeNotebookRuntime();
   const runs = new Array(cells.length);
   const inlineRuns = [];
   const outputStatements = [];
-  const events = [
-    ...cells.map((cell) => ({ type: "cell", start: cell.start, value: cell })),
-    ...inlines.map((inline) => ({ type: "inline", start: inline.start, value: inline })),
-  ].sort((left, right) => left.start - right.start);
 
-  for (const event of events) {
+  for (const event of document.nodes) {
     if (event.type === "cell") {
       const cell = event.value;
       try {
         runs[cell.index] = executeCell(cell, runtime);
       } catch (error) {
         runs[cell.index] = {
+          metadata: cell.metadata,
           statements: [{
             line: cell.codeLine,
             code: cell.code.trim(),
@@ -580,6 +764,7 @@ function executeDocument(source) {
   }
 
   return {
+    document,
     cells,
     inlineRuns,
     runs,
@@ -1284,6 +1469,18 @@ const editor = new EditorView({
 
 runButton.addEventListener("click", runNotebook);
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
+closeHelpButton.addEventListener("click", () => helpDialog.close());
+maximizeHelpButton.addEventListener("click", () => {
+  const expanded = helpDialog.classList.toggle("is-maximized");
+  maximizeHelpButton.textContent = expanded ? "Restore" : "Expand";
+  maximizeHelpButton.title = expanded ? "Restore help window" : "Expand help to the window";
+  maximizeHelpButton.setAttribute("aria-pressed", String(expanded));
+});
+helpTopic.addEventListener("change", () => {
+  showHelpTopic(helpTopic.value).catch((error) => {
+    helpContent.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
 toggleSidebarButton.addEventListener("click", () => {
   if (!projects.isOpen) return;
   sidebarCollapsed = !sidebarCollapsed;
@@ -1372,6 +1569,9 @@ listen("menu-command", (event) => {
     "new-notebook": () => newNotebookButton.click(),
     "new-note": () => newNoteButton.click(),
     "toggle-right-pane": toggleRightPane,
+    "open-notebook-help": () => openHelp("notebook"),
+    "open-rix-reference": () => openHelp("rix"),
+    "open-rix-tutorials": () => openHelp("tutorials"),
     export: () => openExportDialog(),
     "quick-export": () => quickExport(),
   };
@@ -1385,6 +1585,11 @@ listen("open-recent-project", (event) => {
 });
 window.addEventListener("keydown", (event) => {
   if (handleRunShortcut(event)) return;
+  if ((event.metaKey || event.ctrlKey) && (event.key === "?" || (event.shiftKey && (event.key === "/" || event.code === "Slash")))) {
+    event.preventDefault();
+    openHelp("notebook");
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && !event.shiftKey) {
     event.preventDefault();
     newNoteButton.click();
