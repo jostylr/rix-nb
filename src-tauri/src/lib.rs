@@ -10,6 +10,8 @@ const RECENT_PROJECT_LIMIT: usize = 12;
 
 #[derive(Clone, Deserialize, Serialize)]
 struct RecentProject {
+    #[serde(default)]
+    last_note_path: Option<String>,
     path: String,
     title: String,
 }
@@ -96,11 +98,16 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 #[tauri::command]
-fn record_recent_project(app: AppHandle, path: String, title: String) -> Result<(), String> {
+fn record_recent_project(
+    app: AppHandle,
+    path: String,
+    title: String,
+    last_note_path: Option<String>,
+) -> Result<(), String> {
     allow_project_access(&app, &path)?;
     let mut recents = load_recent_projects(&app)?;
     recents.retain(|recent| recent.path != path);
-    recents.insert(0, RecentProject { path, title });
+    recents.insert(0, RecentProject { path, title, last_note_path });
     recents.truncate(RECENT_PROJECT_LIMIT);
     save_recent_projects(&app, &recents)?;
     app.set_menu(build_menu(&app).map_err(|error| error.to_string())?)
@@ -186,7 +193,7 @@ pub fn run() {
                 if let Some(index) = id.strip_prefix("open-recent:").and_then(|index| index.parse::<usize>().ok()) {
                     if let Some(recent) = load_recent_projects(app).ok().and_then(|projects| projects.get(index).cloned()) {
                         if allow_project_access(app, &recent.path).is_ok() {
-                            let _ = app.emit("open-recent-project", recent.path);
+                            let _ = app.emit("open-recent-project", recent);
                         }
                     }
                     return;

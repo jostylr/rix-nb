@@ -9,14 +9,34 @@ editing and document-rendering experience.
 
 This initial application opens a native macOS window with a CodeMirror 6
 Markdown editor, a live HTML preview, and a first RiX execution loop. The
-application runs fenced `rix` blocks in document order; normal blocks share a
-notebook context and a `rix new` block starts with a fresh one. It intentionally
-has no filesystem access yet.
+application runs fenced `rix` blocks and `@{expression}` inline values in
+document order; normal blocks share a notebook context and a `rix new` block
+starts with a fresh isolated one. A `rix refresh` block starts a fresh context
+which becomes the context for subsequent ordinary blocks. Results update live
+after a short pause while typing.
 
 RiX results are the default right-hand pane. Each top-level RiX statement is
 shown with its source line, and selecting a result returns the editor to that
-line. Use the Preview button or `Cmd-Shift-P` to swap that pane for the rendered
-Markdown preview, which includes the current RiX statement results.
+line. Use the Preview button, `Cmd-P`, or `Cmd-Shift-P` to swap that pane for
+the rendered Markdown preview, which includes the current RiX statement results.
+
+### Notebook controls
+
+RiX Notebook adds a notebook-only `Slider` system function. Both `.Slider(...)`
+and `@_Slider(...)` work in notebook cells; neither is a general RiX runtime
+feature. A slider returns an exact RiX number and appears in the results pane.
+Moving it re-evaluates the document in source order.
+
+```rix
+x := .Slider(1:5, 1/10, 3);
+area := x^2;
+```
+
+The positional form is `(interval, step-or-steps, start)`. A positive integer
+second value of 3 or greater means a number of steps; other nonzero exact values
+are step sizes. The map form is `.Slider({= interval=1:5, step=1/10, start=3})`
+or `steps` instead of `step`. Omit arguments for `-10:10`, 20 steps, and a
+midpoint start. RiX currently writes `1/10` rather than a leading decimal `.1`.
 
 ## Project files
 

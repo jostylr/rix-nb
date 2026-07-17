@@ -8,9 +8,12 @@
   <body>
     <main class="app-shell">
       <header class="toolbar">
-        <div>
-          <p class="eyebrow">RiX Notebook</p>
-          <h1 id="workspace-title">Scratch note</h1>
+        <div class="toolbar-title-group">
+          <button id="toggle-sidebar" class="toolbar-sidebar-toggle" type="button" title="Show project sidebar" aria-label="Show project sidebar" aria-pressed="false" hidden>☰</button>
+          <div>
+            <p class="eyebrow">RiX Notebook</p>
+            <h1 id="workspace-title">Scratch note</h1>
+          </div>
         </div>
         <div class="toolbar-actions">
           <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
@@ -61,8 +64,14 @@ perimeter;
 ```
 </div>
         </section>
+        <div id="main-resizer" class="main-resizer" role="separator" aria-label="Resize editor and document panes" aria-orientation="vertical" tabindex="0"></div>
 
         <section class="document-pane" aria-label="Rendered notebook">
+          <section id="slider-controls" class="slider-controls" aria-label="RiX controls" hidden>
+            <p class="slider-controls-title">Controls</p>
+            <div id="slider-control-list"></div>
+          </section>
+
           <article id="preview-pane" class="pane preview-pane" aria-label="Rendered Markdown preview" hidden>
             <span class="pane-title">Preview</span>
             <div id="markdown-preview" class="markdown-body"></div>

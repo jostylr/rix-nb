@@ -9,6 +9,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { copyFile, mkdir, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { Integer, Rational, RationalInterval } from "@ratmath/core";
 import {
   Context,
   createDefaultRegistry,
@@ -29,6 +30,10 @@ editorHost.textContent = "";
 const preview = document.querySelector("#markdown-preview");
 const output = document.querySelector("#rix-output");
 const outputPane = document.querySelector("#output-pane");
+const mainResizer = document.querySelector("#main-resizer");
+const editorPane = document.querySelector(".editor-pane");
+const sliderControls = document.querySelector("#slider-controls");
+const sliderControlList = document.querySelector("#slider-control-list");
 const previewPane = document.querySelector("#preview-pane");
 const runButton = document.querySelector("#run-notebook");
 const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
@@ -38,6 +43,7 @@ const workspace = document.querySelector(".workspace");
 const editorKind = document.querySelector("#editor-kind");
 const newProjectButton = document.querySelector("#new-project");
 const openProjectButton = document.querySelector("#open-project");
+const toggleSidebarButton = document.querySelector("#toggle-sidebar");
 const saveNoteButton = document.querySelector("#save-note");
 const newNotebookButton = document.querySelector("#new-notebook");
 const newNoteButton = document.querySelector("#new-note");
@@ -72,7 +78,13 @@ let dirty = false;
 let fileContext = null;
 let activeDocument = { kind: "note", path: null };
 const collapsedNotebooks = new Set();
-let recentProjectPath = null;
+let recentProjectKey = null;
+let liveRunTimer = null;
+let renderedSliderSignature = "";
+let sidebarCollapsed = false;
+let sidebarProjectDirectory = null;
+let editorPaneRatio = null;
+const sliderOverrides = new Map();
 
 const markdownRenderer = new MarkdownIt({
   html: false,
@@ -164,22 +176,98 @@ function renderMarkdown(source, runs = latestRuns) {
   });
 }
 
+function setPreviewStale(stale) {
+  previewPane.classList.toggle("is-stale", stale);
+}
+
 function extractRixCells(source) {
   const cells = [];
   const fencePattern = /^```rix(?:[ \t]+([^\n]*))?[ \t]*\n([\s\S]*?)^```[ \t]*$/gim;
   let match;
 
+  let index = 0;
   while ((match = fencePattern.exec(source)) !== null) {
     const line = source.slice(0, match.index).split("\n").length;
     cells.push({
+      index,
+      start: match.index,
+      end: fencePattern.lastIndex,
       code: match[2],
       codeLine: line + 1,
       line,
       options: new Set((match[1] || "").trim().split(/\s+/).filter(Boolean)),
     });
+    index += 1;
   }
 
   return cells;
+}
+
+function extractFencedRanges(source) {
+  const ranges = [];
+  const pattern = /^```[^\n]*\n[\s\S]*?^```[ \t]*$/gim;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    ranges.push({ start: match.index, end: pattern.lastIndex });
+  }
+  return ranges;
+}
+
+function extractInlineExpressions(source) {
+  const expressions = [];
+  const fences = extractFencedRanges(source);
+  let fenceIndex = 0;
+  let index = 0;
+
+  while (index < source.length) {
+    const fence = fences[fenceIndex];
+    if (fence && index >= fence.start) {
+      index = fence.end;
+      fenceIndex += 1;
+      continue;
+    }
+    if (source[index] !== "@" || source[index + 1] !== "{") {
+      index += 1;
+      continue;
+    }
+
+    let depth = 1;
+    let quote = null;
+    let escaped = false;
+    let cursor = index + 2;
+    for (; cursor < source.length && depth > 0; cursor += 1) {
+      const character = source[cursor];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === quote) quote = null;
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+      }
+    }
+    if (depth !== 0) {
+      index += 2;
+      continue;
+    }
+    const end = cursor;
+    const expression = source.slice(index + 2, end - 1).trim();
+    if (expression) {
+      expressions.push({
+        start: index,
+        end,
+        expression,
+        line: source.slice(0, index).split("\n").length,
+      });
+    }
+    index = end;
+  }
+  return expressions;
 }
 
 function splitTopLevelStatements(source) {
@@ -207,10 +295,105 @@ function splitTopLevelStatements(source) {
   return statements.filter((statement) => statement.code.length > 0);
 }
 
-function makeNotebookRuntime() {
+function asRational(value, name) {
+  if (value instanceof Rational) return value;
+  if (value instanceof Integer) return new Rational(value);
+  throw new Error(`${name} must be an exact RiX number`);
+}
+
+function asInterval(value) {
+  if (value instanceof RationalInterval) return value;
+  throw new Error("Slider interval must be a RiX interval such as 1:5");
+}
+
+function asPositiveCount(value, name) {
+  if (!(value instanceof Integer) || value.value <= 0n) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  const count = Number(value.value);
+  if (!Number.isSafeInteger(count) || count > 10_000) {
+    throw new Error(`${name} must be at most 10000`);
+  }
+  return count;
+}
+
+function inferSliderConfig(args) {
+  let interval = new RationalInterval(-10, 10);
+  let start = null;
+  let step = null;
+  let steps = null;
+
+  if (args.length === 1 && args[0]?.type === "map") {
+    const entries = args[0].entries;
+    interval = entries.has("interval") ? asInterval(entries.get("interval")) : interval;
+    start = entries.has("start") ? asRational(entries.get("start"), "Slider start") : null;
+    if (entries.has("step") && entries.has("steps")) {
+      throw new Error("Slider accepts either step or steps, not both");
+    }
+    if (entries.has("step")) step = asRational(entries.get("step"), "Slider step");
+    if (entries.has("steps")) steps = asPositiveCount(entries.get("steps"), "Slider steps");
+  } else {
+    if (args.length > 3) throw new Error("Slider accepts interval, step-or-steps, and start");
+    if (args[0] !== undefined) interval = asInterval(args[0]);
+    if (args[1] !== undefined) {
+      const second = asRational(args[1], "Slider step-or-steps");
+      if (second.numerator === 0n) throw new Error("Slider step-or-steps cannot be zero");
+      const isInteger = second.denominator === 1n;
+      if (isInteger && second.numerator >= 3n) steps = asPositiveCount(new Integer(second.numerator), "Slider steps");
+      else step = second;
+    }
+    if (args[2] !== undefined) start = asRational(args[2], "Slider start");
+  }
+
+  const low = interval.low;
+  const high = interval.high;
+  const span = high.subtract(low);
+  if (span.numerator === 0n) throw new Error("Slider interval endpoints must differ");
+  if (step) {
+    if (step.numerator < 0n) step = step.negate();
+    const tentativeSteps = Math.floor(span.toNumber() / step.toNumber());
+    if (!Number.isFinite(tentativeSteps) || tentativeSteps < 1) {
+      throw new Error("Slider step must fit inside its interval");
+    }
+    steps = Math.min(tentativeSteps, 10_000);
+  } else {
+    steps ??= 20;
+    step = span.divide(new Integer(BigInt(steps)));
+  }
+  start ??= low.add(high).divide(new Integer(2));
+  const startIndex = Math.max(0, Math.min(steps, Math.round((start.toNumber() - low.toNumber()) / step.toNumber())));
+  return { low, high, step, steps, startIndex };
+}
+
+function createNotebookSlider(args, runtime) {
+  const config = inferSliderConfig(args);
+  const id = `${runtime.currentSourceId}:${runtime.sliderCounter++}`;
+  const index = Math.max(0, Math.min(config.steps, runtime.sliderOverrides.get(id) ?? config.startIndex));
+  const value = config.low.add(config.step.multiply(new Integer(BigInt(index))));
+  let valueWidth = 1;
+  const widthSamples = Math.min(config.steps, 200);
+  for (let sample = 0; sample <= widthSamples; sample += 1) {
+    const candidate = Math.round((config.steps * sample) / widthSamples);
+    const candidateValue = config.low.add(config.step.multiply(new Integer(BigInt(candidate))));
+    valueWidth = Math.max(valueWidth, formatValue(candidateValue).length);
+  }
+  runtime.sliders.push({ ...config, id, index, value, valueWidth });
+  return value;
+}
+
+function makeNotebookRuntime(overrides = sliderOverrides) {
   const registry = createDefaultRegistry();
-  const systemContext = createDefaultSystemContext();
-  return { registry, systemContext, context: new Context() };
+  const runtime = { registry, context: new Context(), sliderCounter: 0, sliderOverrides: overrides, sliders: [], currentSourceId: "document" };
+  const systemContext = createDefaultSystemContext({ frozen: false });
+  systemContext.register("SLIDER", {
+    impl(args) {
+      return createNotebookSlider(args, runtime);
+    },
+    doc: "Notebook-only interactive slider control",
+  });
+  systemContext.freeze();
+  runtime.systemContext = systemContext;
+  return runtime;
 }
 
 function jumpToLine(line) {
@@ -226,39 +409,20 @@ function appendOutput(statement) {
   result.setAttribute("role", "button");
   result.setAttribute("aria-label", `Jump to RiX statement on line ${statement.line}`);
 
-  const title = document.createElement("p");
-  title.className = "cell-result-title";
-  title.textContent = `RiX statement · line ${statement.line}`;
-
+  const lineNumber = document.createElement("span");
+  lineNumber.className = "cell-result-line-number";
+  lineNumber.textContent = `line ${statement.line}`;
   const source = document.createElement("pre");
   source.className = "cell-source";
-  const sourceLines = statement.code.split("\n");
-  const isLong = sourceLines.length > 3;
-  const compactSource = () => [sourceLines[0], "…", sourceLines.at(-1)].join("\n");
-  source.textContent = isLong ? compactSource() : statement.code;
+  source.textContent = statement.code.replaceAll("\n", " ↵ ");
+  source.title = statement.code;
 
   const value = document.createElement("pre");
   value.className = "cell-result-value";
-  value.textContent = statement.content;
+  value.textContent = statement.content.replaceAll("\n", " ↵ ");
+  value.title = statement.content;
 
-  result.append(title, source);
-  if (isLong) {
-    const sourceToggle = document.createElement("button");
-    sourceToggle.className = "cell-source-toggle";
-    sourceToggle.type = "button";
-    sourceToggle.textContent = "▸ Expand code";
-    sourceToggle.setAttribute("aria-expanded", "false");
-    sourceToggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const expanded = sourceToggle.getAttribute("aria-expanded") === "true";
-      source.textContent = expanded ? compactSource() : statement.code;
-      sourceToggle.textContent = expanded ? "▸ Expand code" : "▾ Collapse code";
-      sourceToggle.setAttribute("aria-expanded", String(!expanded));
-    });
-    sourceToggle.addEventListener("keydown", (event) => event.stopPropagation());
-    result.append(sourceToggle);
-  }
-  result.append(value);
+  result.append(lineNumber, source, value);
   result.addEventListener("click", () => jumpToLine(statement.line));
   result.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -269,7 +433,12 @@ function appendOutput(statement) {
 }
 
 function executeCell(cell, runtime) {
-  const context = cell.options.has("new") ? new Context() : runtime.context;
+  const context = cell.options.has("new")
+    ? new Context()
+    : cell.options.has("refresh")
+      ? (runtime.context = new Context())
+      : runtime.context;
+  runtime.currentSourceId = `cell:${cell.line}`;
   context.setEnv("__system_context__", runtime.systemContext);
   context.setEnv("__registry__", runtime.registry);
   context.setEnv("__source__", cell.code);
@@ -285,14 +454,21 @@ function executeCell(cell, runtime) {
     const sourceLine = posToLineCol(cell.code, source.start).line;
     const line = cell.codeLine + sourceLine - 1;
     try {
+      const sliderStart = runtime.sliders.length;
       const value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
-      statements.push({ line, code: source.code, content: formatValue(value), kind: "result" });
+      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*(?:\.|@_)?Slider\s*\(/)?.[1] || "Slider";
+      for (const slider of runtime.sliders.slice(sliderStart)) {
+        slider.name = sliderName;
+        slider.line = line;
+      }
+      statements.push({ line, code: source.code, content: formatValue(value), kind: "result", position: cell.start + source.start });
     } catch (error) {
       statements.push({
         line,
         code: source.code,
         content: error instanceof Error ? error.message : String(error),
         kind: "error",
+        position: cell.start + source.start,
       });
       break;
     }
@@ -301,47 +477,214 @@ function executeCell(cell, runtime) {
   return { statements };
 }
 
-function runNotebook() {
-  const source = editor.state.doc.toString();
-  const cells = extractRixCells(source);
-  output.replaceChildren();
-
-  if (cells.length === 0) {
-    const placeholder = document.createElement("p");
-    placeholder.className = "output-placeholder";
-    placeholder.textContent = "No fenced RiX cells found. Add a ```rix block to run it.";
-    output.append(placeholder);
-    status.textContent = "No RiX cells to run";
-    return;
+function executeInlineExpression(inline, runtime) {
+  const context = runtime.context;
+  runtime.currentSourceId = `inline:${inline.line}`;
+  context.setEnv("__system_context__", runtime.systemContext);
+  context.setEnv("__registry__", runtime.registry);
+  context.setEnv("__source__", inline.expression);
+  context.setEnv("__current_file__", `<inline RiX expression at line ${inline.line}>`);
+  let value;
+  const ast = parse(inline.expression);
+  const irNodes = lower(ast);
+  if (irNodes.length === 0) throw new Error("Inline RiX expression is empty");
+  const sliderStart = runtime.sliders.length;
+  for (const irNode of irNodes) {
+    value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
   }
+  for (const slider of runtime.sliders.slice(sliderStart)) {
+    slider.name = "Slider";
+    slider.line = inline.line;
+  }
+  const content = formatValue(value);
+  return {
+    start: inline.start,
+    end: inline.end,
+    replacement: content,
+    statement: {
+      line: inline.line,
+      code: `@{${inline.expression}}`,
+      content,
+      kind: "result",
+      label: "Inline RiX",
+      position: inline.start,
+    },
+  };
+}
 
+function replaceInlineExpressions(source, inlineRuns) {
+  let cursor = 0;
+  let rendered = "";
+  for (const run of inlineRuns) {
+    rendered += source.slice(cursor, run.start);
+    rendered += run.replacement;
+    cursor = run.end;
+  }
+  return rendered + source.slice(cursor);
+}
+
+function executeDocument(source) {
+  const cells = extractRixCells(source);
+  const inlines = extractInlineExpressions(source);
   const runtime = makeNotebookRuntime();
-  let succeeded = 0;
-  const runs = [];
+  const runs = new Array(cells.length);
+  const inlineRuns = [];
+  const outputStatements = [];
+  const events = [
+    ...cells.map((cell) => ({ type: "cell", start: cell.start, value: cell })),
+    ...inlines.map((inline) => ({ type: "inline", start: inline.start, value: inline })),
+  ].sort((left, right) => left.start - right.start);
 
-  for (const cell of cells) {
+  for (const event of events) {
+    if (event.type === "cell") {
+      const cell = event.value;
+      try {
+        runs[cell.index] = executeCell(cell, runtime);
+      } catch (error) {
+        runs[cell.index] = {
+          statements: [{
+            line: cell.codeLine,
+            code: cell.code.trim(),
+            content: error instanceof Error ? error.message : String(error),
+            kind: "error",
+            position: cell.start,
+          }],
+        };
+      }
+      outputStatements.push(...runs[cell.index].statements);
+      continue;
+    }
+    const inline = event.value;
     try {
-      const run = executeCell(cell, runtime);
-      runs.push(run);
-      for (const statement of run.statements) appendOutput(statement);
-      if (run.statements.every((statement) => statement.kind === "result")) succeeded += 1;
+      const inlineRun = executeInlineExpression(inline, runtime);
+      inlineRuns.push(inlineRun);
+      outputStatements.push(inlineRun.statement);
     } catch (error) {
-      const run = {
-        statements: [{
-          line: cell.codeLine,
-          code: cell.code.trim(),
-          content: error instanceof Error ? error.message : String(error),
+      const content = error instanceof Error ? error.message : String(error);
+      const inlineRun = {
+        start: inline.start,
+        end: inline.end,
+        replacement: `RiX error: ${content}`,
+        statement: {
+          line: inline.line,
+          code: `@{${inline.expression}}`,
+          content,
           kind: "error",
-        }],
+          label: "Inline RiX",
+          position: inline.start,
+        },
       };
-      runs.push(run);
-      appendOutput(run.statements[0]);
+      inlineRuns.push(inlineRun);
+      outputStatements.push(inlineRun.statement);
     }
   }
 
-  latestRuns = runs;
-  renderMarkdown(source);
-  status.textContent = `${succeeded} of ${cells.length} RiX cells ran`;
+  return {
+    cells,
+    inlineRuns,
+    runs,
+    outputStatements: outputStatements.sort((left, right) => left.position - right.position),
+    sliders: runtime.sliders,
+    renderedSource: replaceInlineExpressions(source, inlineRuns),
+  };
+}
+
+function renderSliderControls(sliders) {
+  sliderControls.hidden = sliders.length === 0;
+  if (sliders.length === 0) {
+    renderedSliderSignature = "";
+    sliderControlList.replaceChildren();
+    return;
+  }
+
+  const signature = sliders.map((slider) => [
+    slider.id,
+    slider.low.toString(),
+    slider.high.toString(),
+    slider.step.toString(),
+    slider.steps,
+    slider.startIndex,
+  ].join(":")).join("|");
+
+  if (signature === renderedSliderSignature) {
+    for (const [index, slider] of sliders.entries()) {
+      const control = sliderControlList.children[index];
+      const input = control.querySelector("input");
+      const value = control.querySelector("output");
+      if (document.activeElement !== input) input.value = String(slider.index);
+      value.textContent = formatValue(slider.value);
+    }
+    return;
+  }
+
+  renderedSliderSignature = signature;
+  sliderControlList.replaceChildren();
+  for (const slider of sliders) {
+    const control = document.createElement("label");
+    control.className = "slider-control";
+    const heading = document.createElement("span");
+    heading.className = "slider-control-heading";
+    const sliderName = document.createElement("span");
+    sliderName.textContent = `${slider.name} · `;
+    const lineNumber = document.createElement("span");
+    lineNumber.className = "slider-line-number";
+    lineNumber.textContent = `Line ${slider.line}`;
+    heading.append(sliderName, lineNumber);
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = "0";
+    input.max = String(slider.steps);
+    input.step = "1";
+    input.value = String(slider.index);
+    const value = document.createElement("output");
+    value.textContent = formatValue(slider.value);
+    value.style.width = `${slider.valueWidth}ch`;
+    input.addEventListener("pointerdown", () => {
+      window.requestAnimationFrame(() => input.focus());
+    });
+    input.addEventListener("click", () => input.focus());
+    input.addEventListener("input", () => {
+      sliderOverrides.set(slider.id, Number(input.value));
+      const nextValue = slider.low.add(slider.step.multiply(new Integer(BigInt(input.value))));
+      value.textContent = formatValue(nextValue);
+      scheduleNotebookRun(180);
+    });
+    input.addEventListener("change", runNotebook);
+    control.append(heading, input, value);
+    sliderControlList.append(control);
+  }
+}
+
+function runNotebook() {
+  window.clearTimeout(liveRunTimer);
+  const source = editor.state.doc.toString();
+  const documentRun = executeDocument(source);
+  output.replaceChildren();
+
+  if (documentRun.cells.length === 0 && documentRun.inlineRuns.length === 0) {
+    latestRuns = [];
+    renderMarkdown(source, []);
+    renderSliderControls([]);
+    const placeholder = document.createElement("p");
+    placeholder.className = "output-placeholder";
+    placeholder.textContent = "No RiX cells or inline expressions found.";
+    output.append(placeholder);
+    status.textContent = "No RiX content to run";
+    setPreviewStale(false);
+    return;
+  }
+  for (const statement of documentRun.outputStatements) appendOutput(statement);
+  const succeeded = documentRun.runs.filter((run) => run.statements.every((statement) => statement.kind === "result")).length;
+  latestRuns = documentRun.runs;
+  renderMarkdown(documentRun.renderedSource, documentRun.runs);
+  renderSliderControls(documentRun.sliders);
+  setPreviewStale(false);
+  status.textContent = `${succeeded} of ${documentRun.cells.length} RiX cells and ${documentRun.inlineRuns.length} inline expressions ran`;
+}
+
+function scheduleNotebookRun(delay = 300) {
+  window.clearTimeout(liveRunTimer);
+  liveRunTimer = window.setTimeout(runNotebook, delay);
 }
 
 function isRunShortcut(event) {
@@ -399,11 +742,75 @@ function setDocument(source) {
   updateSaveButton();
   latestRuns = [];
   renderMarkdown(source);
+  setPreviewStale(false);
   runNotebook();
 }
 
 function updateSaveButton() {
   saveNoteButton.disabled = !projects.isOpen || !dirty;
+}
+
+function updateSidebarToggle(open) {
+  toggleSidebarButton.hidden = !open;
+  toggleSidebarButton.setAttribute("aria-pressed", String(!sidebarCollapsed));
+  toggleSidebarButton.setAttribute("aria-label", sidebarCollapsed ? "Show project sidebar" : "Hide project sidebar");
+  toggleSidebarButton.title = sidebarCollapsed ? "Show project sidebar" : "Hide project sidebar";
+}
+
+function editorSplitMetrics() {
+  const sidebarWidth = projectSidebar.hidden ? 0 : projectSidebar.getBoundingClientRect().width;
+  const dividerWidth = mainResizer.getBoundingClientRect().width;
+  const availableWidth = workspace.getBoundingClientRect().width - sidebarWidth - dividerWidth;
+  return { availableWidth, sidebarWidth };
+}
+
+function setEditorPaneWidth(width, rememberRatio = true) {
+  const { availableWidth } = editorSplitMetrics();
+  const minimumEditorWidth = 330;
+  const minimumDocumentWidth = 380;
+  const maximumEditorWidth = Math.max(minimumEditorWidth, availableWidth - minimumDocumentWidth);
+  const resolvedWidth = Math.max(minimumEditorWidth, Math.min(maximumEditorWidth, width));
+  workspace.style.setProperty("--editor-pane-width", `${resolvedWidth}px`);
+  if (rememberRatio && availableWidth > 0) editorPaneRatio = resolvedWidth / availableWidth;
+}
+
+function preserveEditorPaneRatio() {
+  if (window.matchMedia("(max-width: 900px)").matches) return;
+  const { availableWidth } = editorSplitMetrics();
+  if (availableWidth <= 0) return;
+  if (editorPaneRatio === null) editorPaneRatio = editorPane.getBoundingClientRect().width / availableWidth;
+  setEditorPaneWidth(availableWidth * editorPaneRatio, false);
+}
+
+function installMainResizer() {
+  let pointerId = null;
+  mainResizer.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    pointerId = event.pointerId;
+    mainResizer.setPointerCapture(pointerId);
+    document.body.classList.add("is-resizing");
+    setEditorPaneWidth(event.clientX - workspace.getBoundingClientRect().left - (projectSidebar.hidden ? 0 : projectSidebar.getBoundingClientRect().width));
+  });
+  mainResizer.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId) return;
+    setEditorPaneWidth(event.clientX - workspace.getBoundingClientRect().left - (projectSidebar.hidden ? 0 : projectSidebar.getBoundingClientRect().width));
+  });
+  const stopResize = (event) => {
+    if (event.pointerId !== pointerId) return;
+    if (mainResizer.hasPointerCapture(pointerId)) mainResizer.releasePointerCapture(pointerId);
+    pointerId = null;
+    document.body.classList.remove("is-resizing");
+  };
+  mainResizer.addEventListener("pointerup", stopResize);
+  mainResizer.addEventListener("pointercancel", stopResize);
+  mainResizer.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const editorWidth = editorPane.getBoundingClientRect().width;
+    setEditorPaneWidth(editorWidth + (event.key === "ArrowLeft" ? -20 : 20));
+  });
+  window.addEventListener("resize", () => window.requestAnimationFrame(preserveEditorPaneRatio));
+  window.requestAnimationFrame(preserveEditorPaneRatio);
 }
 
 function addDelayedTreeSelection(button, selectAction) {
@@ -511,8 +918,9 @@ function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
 }
 
 function staticHtmlDocument(title, source, katexStylesheetPath) {
+  const documentRun = executeDocument(source);
   const holder = document.createElement("article");
-  holder.innerHTML = exportMarkdownRenderer.render(source);
+  holder.innerHTML = exportMarkdownRenderer.render(documentRun.renderedSource);
   renderMathInElement(holder, {
     delimiters: [
       { left: "$$", right: "$$", display: true },
@@ -686,11 +1094,18 @@ async function commitProjectNote(path, title) {
 
 function refreshProjectControls() {
   const open = projects.isOpen;
+  if (open && projects.project.directory !== sidebarProjectDirectory) {
+    sidebarProjectDirectory = projects.project.directory;
+    sidebarCollapsed = false;
+  }
+  if (!open) sidebarProjectDirectory = null;
   updateSaveButton();
   newNotebookButton.disabled = !open;
   newNoteButton.disabled = !open;
-  projectSidebar.hidden = !open;
-  workspace.classList.toggle("has-project", open);
+  projectSidebar.hidden = !open || sidebarCollapsed;
+  workspace.classList.toggle("has-project", open && !sidebarCollapsed);
+  updateSidebarToggle(open);
+  window.requestAnimationFrame(preserveEditorPaneRatio);
   if (!open) {
     projectTree.replaceChildren();
     return;
@@ -791,13 +1206,16 @@ async function loadNote(note) {
 }
 
 async function rememberCurrentProject() {
-  if (!projects.isOpen || projects.project.directory === recentProjectPath) return;
+  if (!projects.isOpen || !projects.currentNotePath) return;
+  const key = `${projects.project.directory}\u0000${projects.currentNotePath}`;
+  if (key === recentProjectKey) return;
   try {
     await invoke("record_recent_project", {
       path: projects.project.directory,
       title: projects.project.title,
+      lastNotePath: projects.currentNotePath,
     });
-    recentProjectPath = projects.project.directory;
+    recentProjectKey = key;
   } catch {
     // Project opening remains available even if the operating system cannot persist recents.
   }
@@ -851,12 +1269,12 @@ const editor = new EditorView({
       }),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged) return;
-        latestRuns = [];
-        renderMarkdown(update.state.doc.toString());
         if (!loadingDocument) {
+          setPreviewStale(true);
           dirty = true;
           updateSaveButton();
-          setStatus(projects.isOpen ? "Edited · ⌘S to save" : "Edited · run notebook to refresh results");
+          setStatus("Edited · preview and results updating");
+          scheduleNotebookRun(1000);
         }
       }),
     ],
@@ -866,6 +1284,12 @@ const editor = new EditorView({
 
 runButton.addEventListener("click", runNotebook);
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
+toggleSidebarButton.addEventListener("click", () => {
+  if (!projects.isOpen) return;
+  sidebarCollapsed = !sidebarCollapsed;
+  refreshProjectControls();
+});
+installMainResizer();
 newProjectButton.addEventListener("click", () => runProjectAction(async () => {
   const title = await requestName({ title: "New RiX project", label: "Project name", value: "RiX Project" });
   if (!title) return;
@@ -955,7 +1379,7 @@ listen("menu-command", (event) => {
 });
 listen("open-recent-project", (event) => {
   runProjectAction(async () => {
-    const note = await projects.openProject(event.payload);
+    const note = await projects.openProject(event.payload.path, event.payload.last_note_path);
     if (note) await loadNote(note);
   });
 });
