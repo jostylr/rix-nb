@@ -21,6 +21,7 @@ import {
   posToLineCol,
   tokenize,
 } from "../../rix/src/index.js";
+import { rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
 import "./styles.css";
 
@@ -1520,7 +1521,9 @@ const editor = new EditorView({
     doc: initialDocument,
     extensions: [
       basicSetup,
-      markdown(),
+      markdown({
+        codeLanguages: (info) => /^rix(?:\s|$)/i.test(info) ? rixLanguage : null,
+      }),
       EditorView.domEventHandlers({
         keydown(event) {
           return handleRunShortcut(event);
