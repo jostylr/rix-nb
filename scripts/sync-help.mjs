@@ -24,9 +24,10 @@ Fence metadata follows \`rix\` on the opening fence. Metadata is space-separated
 - \`new\` — run this cell in a fresh, isolated context.
 - \`refresh\` — begin a fresh context that later ordinary cells inherit.
 - \`live\` — marks a cell intended for future interactive HTML export.
-- \`show-code\` / \`hide-code\` — control whether code appears in the rendered preview.
-- \`show-output\` / \`hide-output\` — control whether cell output appears in the rendered preview.
-- \`static:{expression}\` — records an expression for future static-export replacement.
+- \`show-code\` / \`hide-code\` — control whether code appears in the live preview.
+- \`show-output\` / \`hide-output\` — control whether cell output appears in the live preview.
+- \`show\` / \`hide\` — concise aliases that show or hide both code and output.
+- \`static:{expression}\` — evaluates an expression for the Static preview and static exports.
 
 Example:
 
@@ -34,6 +35,8 @@ Example:
 radius := 3;
 22/7 * radius^2;
 \`\`\`
+
+Use **Show static** in the Preview toolbar to see only static replacements. Cells without a \`static:{...}\` directive do not appear in that mode.
 
 ## Inline values
 

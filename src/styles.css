@@ -320,8 +320,55 @@ body.is-resizing {
 }
 
 .preview-pane {
+  grid-row: 2;
   height: 100%;
   overflow: hidden;
+}
+
+.preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.preview-heading .pane-title {
+  margin-bottom: 0;
+}
+
+.preview-mode-toggle {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  color: #625f58;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  background: #f1efe9;
+  border: 1px solid #c9c5bc;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.preview-mode-option {
+  display: block;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.preview-mode-toggle:not([aria-pressed="true"]) .preview-mode-live,
+.preview-mode-toggle[aria-pressed="true"] .preview-mode-static {
+  color: #fff;
+  background: #35557b;
+}
+
+.preview-mode-toggle:hover,
+.preview-mode-toggle:focus-visible {
+  color: #625f58;
+  background: #f1efe9;
+  border-color: #6f8fbd;
 }
 
 .preview-pane.is-stale #markdown-preview {
@@ -329,10 +376,12 @@ body.is-resizing {
 }
 
 #markdown-preview {
+  height: 100%;
   transition: opacity 160ms ease;
 }
 
 .output-pane {
+  grid-row: 2;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
@@ -590,6 +639,7 @@ body.is-resizing {
 }
 
 .slider-controls {
+  grid-row: 1;
   margin: 0 0 0.75rem;
   padding: 0.65rem 0.75rem;
   min-height: 0;

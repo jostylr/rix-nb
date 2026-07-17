@@ -73,7 +73,13 @@ perimeter;
           </section>
 
           <article id="preview-pane" class="pane preview-pane" aria-label="Rendered Markdown preview" hidden>
-            <span class="pane-title">Preview</span>
+            <div class="preview-heading">
+              <span class="pane-title">Preview</span>
+              <button id="toggle-preview-mode" class="preview-mode-toggle" type="button" title="Switch to static export preview" aria-label="Live preview mode; switch to static export preview" aria-pressed="false">
+                <span class="preview-mode-option preview-mode-live">Live</span>
+                <span class="preview-mode-option preview-mode-static">Static</span>
+              </button>
+            </div>
             <div id="markdown-preview" class="markdown-body"></div>
           </article>
 

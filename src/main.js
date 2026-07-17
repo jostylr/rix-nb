@@ -37,6 +37,7 @@ const sliderControlList = document.querySelector("#slider-control-list");
 const previewPane = document.querySelector("#preview-pane");
 const runButton = document.querySelector("#run-notebook");
 const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
+const togglePreviewModeButton = document.querySelector("#toggle-preview-mode");
 const status = document.querySelector("#document-status");
 const workspaceTitle = document.querySelector("#workspace-title");
 const workspace = document.querySelector(".workspace");
@@ -79,6 +80,7 @@ const closeAppNoticeButton = document.querySelector("#close-app-notice");
 const projects = new ProjectManager();
 let latestRuns = [];
 let activeRightPane = "results";
+let previewMode = "live";
 let loadingDocument = false;
 let dirty = false;
 let fileContext = null;
@@ -332,6 +334,12 @@ function parseFenceMetadata(header) {
     } else if (normalized === "live") {
       metadata.flags.add("live");
       metadata.live = true;
+    } else if (normalized === "show") {
+      metadata.showCode = true;
+      metadata.showOutput = true;
+    } else if (normalized === "hide") {
+      metadata.showCode = false;
+      metadata.showOutput = false;
     } else if (normalized === "show-code") {
       metadata.showCode = true;
     } else if (normalized === "hide-code") {
@@ -568,9 +576,17 @@ function createNotebookSlider(args, runtime) {
   return value;
 }
 
-function makeNotebookRuntime(overrides = sliderOverrides) {
+function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
   const registry = createDefaultRegistry();
-  const runtime = { registry, context: new Context(), sliderCounter: 0, sliderOverrides: overrides, sliders: [], currentSourceId: "document" };
+  const runtime = {
+    registry,
+    context: new Context(),
+    sliderCounter: 0,
+    sliderOverrides: overrides,
+    sliders: [],
+    currentSourceId: "document",
+    evaluateStatic: options.evaluateStatic === true,
+  };
   const systemContext = createDefaultSystemContext({ frozen: false });
   systemContext.register("SLIDER", {
     impl(args) {
@@ -635,6 +651,7 @@ function executeCell(cell, runtime) {
   const irNodes = lower(ast);
   const sources = splitTopLevelStatements(cell.code);
   const statements = [];
+  let staticOutput = null;
 
   for (const [index, irNode] of irNodes.entries()) {
     const source = sources[index] || { start: irNode.pos?.[0] || 0, code: "<source unavailable>" };
@@ -661,7 +678,20 @@ function executeCell(cell, runtime) {
     }
   }
 
-  return { statements, metadata: cell.metadata };
+  if (runtime.evaluateStatic && cell.metadata.staticExpression && statements.every((statement) => statement.kind === "result")) {
+    try {
+      context.setEnv("__source__", cell.metadata.staticExpression);
+      let value;
+      for (const irNode of lower(parse(cell.metadata.staticExpression))) {
+        value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
+      }
+      staticOutput = { content: formatValue(value), kind: "result" };
+    } catch (error) {
+      staticOutput = { content: error instanceof Error ? error.message : String(error), kind: "error" };
+    }
+  }
+
+  return { statements, metadata: cell.metadata, staticOutput };
 }
 
 function executeInlineExpression(inline, runtime) {
@@ -710,10 +740,10 @@ function replaceInlineExpressions(source, inlineRuns) {
   return rendered + source.slice(cursor);
 }
 
-function executeDocument(source) {
+function executeDocument(source, options = {}) {
   const document = parseNotebookDocument(source);
   const { cells, inlines } = document;
-  const runtime = makeNotebookRuntime();
+  const runtime = makeNotebookRuntime(sliderOverrides, options);
   const runs = new Array(cells.length);
   const inlineRuns = [];
   const outputStatements = [];
@@ -771,7 +801,20 @@ function executeDocument(source) {
     outputStatements: outputStatements.sort((left, right) => left.position - right.position),
     sliders: runtime.sliders,
     renderedSource: replaceInlineExpressions(source, inlineRuns),
+    staticRenderedSource: options.evaluateStatic ? renderStaticDocument(document, runs, inlineRuns) : null,
   };
+}
+
+function renderStaticDocument(document, runs, inlineRuns) {
+  const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
+  return document.content.map((node) => {
+    if (node.type === "markdown") return node.source;
+    if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
+    const run = runs[node.value.index];
+    if (!run?.staticOutput) return "";
+    const fence = run.staticOutput.kind === "error" ? "text" : "text";
+    return `\n\n\`\`\`${fence}\n${run.staticOutput.content}\n\`\`\`\n\n`;
+  }).join("");
 }
 
 function renderSliderControls(sliders) {
@@ -840,6 +883,15 @@ function renderSliderControls(sliders) {
   }
 }
 
+function renderDocumentPreview(documentRun) {
+  if (previewMode === "live") {
+    renderMarkdown(documentRun.renderedSource, documentRun.runs);
+    return;
+  }
+  const staticRun = executeDocument(documentRun.document.source, { evaluateStatic: true });
+  renderMarkdown(staticRun.staticRenderedSource, []);
+}
+
 function runNotebook() {
   window.clearTimeout(liveRunTimer);
   const source = editor.state.doc.toString();
@@ -848,7 +900,7 @@ function runNotebook() {
 
   if (documentRun.cells.length === 0 && documentRun.inlineRuns.length === 0) {
     latestRuns = [];
-    renderMarkdown(source, []);
+    renderDocumentPreview(documentRun);
     renderSliderControls([]);
     const placeholder = document.createElement("p");
     placeholder.className = "output-placeholder";
@@ -861,7 +913,7 @@ function runNotebook() {
   for (const statement of documentRun.outputStatements) appendOutput(statement);
   const succeeded = documentRun.runs.filter((run) => run.statements.every((statement) => statement.kind === "result")).length;
   latestRuns = documentRun.runs;
-  renderMarkdown(documentRun.renderedSource, documentRun.runs);
+  renderDocumentPreview(documentRun);
   renderSliderControls(documentRun.sliders);
   setPreviewStale(false);
   status.textContent = `${succeeded} of ${documentRun.cells.length} RiX cells and ${documentRun.inlineRuns.length} inline expressions ran`;
@@ -894,6 +946,7 @@ function setRightPane(pane) {
   const showPreview = pane === "preview";
   previewPane.hidden = !showPreview;
   outputPane.hidden = showPreview;
+  updatePreviewModeControl();
   toggleRightPaneButton.textContent = showPreview ? "Show results" : "Show preview";
   toggleRightPaneButton.title = showPreview
     ? "Show RiX results (⌘P or ⌘⇧P)"
@@ -903,6 +956,26 @@ function setRightPane(pane) {
 
 function toggleRightPane() {
   setRightPane(activeRightPane === "results" ? "preview" : "results");
+}
+
+function updatePreviewModeControl() {
+  const isStatic = previewMode === "static";
+  togglePreviewModeButton.title = isStatic
+    ? "Switch to live notebook preview"
+    : "Switch to static export preview";
+  togglePreviewModeButton.setAttribute(
+    "aria-label",
+    isStatic
+      ? "Static export preview mode; switch to live notebook preview"
+      : "Live preview mode; switch to static export preview",
+  );
+  togglePreviewModeButton.setAttribute("aria-pressed", String(isStatic));
+}
+
+function togglePreviewMode() {
+  previewMode = previewMode === "live" ? "static" : "live";
+  updatePreviewModeControl();
+  runNotebook();
 }
 
 function setStatus(message) {
@@ -1102,10 +1175,9 @@ function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
   });
 }
 
-function staticHtmlDocument(title, source, katexStylesheetPath) {
-  const documentRun = executeDocument(source);
+function staticHtmlDocument(title, source, katexStylesheetPath, documentRun = executeDocument(source, { evaluateStatic: true })) {
   const holder = document.createElement("article");
-  holder.innerHTML = exportMarkdownRenderer.render(documentRun.renderedSource);
+  holder.innerHTML = exportMarkdownRenderer.render(documentRun.staticRenderedSource);
   renderMathInElement(holder, {
     delimiters: [
       { left: "$$", right: "$$", display: true },
@@ -1181,12 +1253,13 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
   const copiedAssets = new Set();
   for (const notePath of notes) {
     const source = await readTextFile(notePath);
+    const staticDocumentRun = executeDocument(source, { evaluateStatic: true });
     const relativePath = pathRelative(projects.project.directory, notePath);
     const destinationBase = pathJoin(exportRoot, relativePath.replace(/\.md$/, ""));
     if (includeMarkdown) {
       const markdownPath = pathJoin(exportRoot, relativePath);
       await mkdir(pathDirectory(markdownPath), { recursive: true });
-      await writeTextFile(markdownPath, source);
+      await writeTextFile(markdownPath, staticDocumentRun.staticRenderedSource);
     }
     if (includeHtml) {
       const htmlPath = `${destinationBase}.html`;
@@ -1197,6 +1270,7 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           notePath.split("/").at(-1).replace(/\.md$/, ""),
           source,
           katexStylesheetForPage(relativePath.replace(/\.md$/, ".html")),
+          staticDocumentRun,
         ),
       );
     }
@@ -1469,6 +1543,7 @@ const editor = new EditorView({
 
 runButton.addEventListener("click", runNotebook);
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
+togglePreviewModeButton.addEventListener("click", togglePreviewMode);
 closeHelpButton.addEventListener("click", () => helpDialog.close());
 maximizeHelpButton.addEventListener("click", () => {
   const expanded = helpDialog.classList.toggle("is-maximized");
