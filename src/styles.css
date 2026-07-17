@@ -24,6 +24,13 @@
   --rix-punctuation: #7b4b16;
 }
 
+.rix-output-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
 * {
   box-sizing: border-box;
 }
