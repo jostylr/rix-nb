@@ -1,8 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists, mkdir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs";
+import { DEFAULT_PROJECT_THEME, parseProjectTheme, projectThemeToml } from "./theme.js";
 
 const PROJECT_FILE = "project.toml";
 const NOTEBOOK_FILE = "notebook.toml";
+const THEME_FILE = "style.toml";
 
 function joinPath(...parts) {
   return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
@@ -143,7 +145,17 @@ export class ProjectManager {
 
   async openProject(directory, lastNotePath = null) {
     const projectPath = joinPath(directory, PROJECT_FILE);
-    this.project = { directory, path: projectPath, ...parseProject(await readTextFile(projectPath)) };
+    const stylePath = joinPath(directory, THEME_FILE);
+    const themeExists = await exists(stylePath);
+    const theme = themeExists ? parseProjectTheme(await readTextFile(stylePath)) : DEFAULT_PROJECT_THEME;
+    this.project = {
+      directory,
+      path: projectPath,
+      stylePath,
+      themeExists,
+      theme,
+      ...parseProject(await readTextFile(projectPath)),
+    };
     this.notebooks.clear();
     for (const relativePath of this.project.notebooks) {
       const path = joinPath(directory, relativePath);
@@ -174,6 +186,7 @@ export class ProjectManager {
     await mkdir(notebookDirectory, { recursive: true });
     await mkdir(joinPath(directory, "assets"), { recursive: true });
     await writeTextFile(joinPath(directory, PROJECT_FILE), projectToml(name, ["Notebook/notebook.toml"]));
+    await writeTextFile(joinPath(directory, THEME_FILE), projectThemeToml());
     await writeTextFile(joinPath(notebookDirectory, NOTEBOOK_FILE), notebookToml("Notebook", ["index.md"]));
     await writeTextFile(joinPath(notebookDirectory, "index.md"), STARTER_NOTE);
     await writeTextFile(joinPath(directory, "assets/right-triangle.svg"), STARTER_SVG);
@@ -225,6 +238,19 @@ export class ProjectManager {
     const parsed = parseNotebook(source);
     await writeTextFile(path, source);
     this.notebooks.set(path, { ...current, ...parsed });
+  }
+
+  async themeSource() {
+    if (!this.project) throw new Error("Open a project first");
+    return this.project.themeExists ? readTextFile(this.project.stylePath) : projectThemeToml();
+  }
+
+  async saveTheme(source) {
+    if (!this.project) throw new Error("Open a project first");
+    const theme = parseProjectTheme(source);
+    await writeTextFile(this.project.stylePath, source);
+    this.project.theme = theme;
+    this.project.themeExists = true;
   }
 
   async createNotebook(title) {

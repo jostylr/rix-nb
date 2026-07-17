@@ -1,5 +1,7 @@
 import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, hoverTooltip } from "@codemirror/view";
+import { autocompletion } from "@codemirror/autocomplete";
+import { linter } from "@codemirror/lint";
 import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import MarkdownIt from "markdown-it";
@@ -21,8 +23,9 @@ import {
   posToLineCol,
   tokenize,
 } from "../../rix/src/index.js";
-import { rixLanguage } from "../../rix/src/tools/codemirror/index.js";
+import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
+import { applyProjectTheme } from "./theme.js";
 import "./styles.css";
 
 const editorHost = document.querySelector("#markdown-editor");
@@ -370,6 +373,7 @@ function extractRixCells(source) {
       index,
       start: match.index,
       end: fencePattern.lastIndex,
+      codeStart: source.indexOf("\n", match.index) + 1,
       code: match[2],
       codeLine: line + 1,
       line,
@@ -379,6 +383,109 @@ function extractRixCells(source) {
   }
 
   return cells;
+}
+
+function isInRixCell(source, position) {
+  return extractRixCells(source).some((cell) => (
+    position >= cell.codeStart && position <= cell.codeStart + cell.code.length
+  ));
+}
+
+function diagnosticForRixError(error, cell) {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/position (\d+)/);
+  const offset = Math.min(Number(match?.[1] ?? cell.code.length), cell.code.length);
+  const from = cell.codeStart + offset;
+  return {
+    from,
+    to: Math.min(from + 1, cell.codeStart + cell.code.length),
+    severity: "error",
+    message,
+  };
+}
+
+// The runtime parser is deliberately used here instead of the editor grammar:
+// this catches only syntax/lowering errors and never evaluates notebook code.
+const rixNotebookLinter = linter((view) => {
+  if (activeDocument.kind !== "note") return [];
+  const diagnostics = [];
+  for (const cell of extractRixCells(view.state.doc.toString())) {
+    try {
+      lower(parse(cell.code));
+    } catch (error) {
+      diagnostics.push(diagnosticForRixError(error, cell));
+    }
+  }
+  return diagnostics;
+}, { delay: 350 });
+
+const notebookSystemContext = createDefaultSystemContext();
+const systemCompletions = notebookSystemContext.getAllNames().map((name) => ({
+  label: name,
+  type: "function",
+  detail: `.${name}`,
+  info: notebookSystemContext.get(name)?.doc || "RiX system capability",
+}));
+
+const rixSyntaxCompletions = [
+  { label: ":=", type: "operator", detail: "assignment", info: "Assign a value to a lowercase identifier." },
+  { label: "??", type: "operator", detail: "conditional", info: "Start a RiX conditional expression." },
+  { label: "?:", type: "operator", detail: "otherwise", info: "Separate the fallback branch of a conditional." },
+  { label: "{=", type: "keyword", detail: "map", info: "Start a map container." },
+  { label: "{?", type: "keyword", detail: "case", info: "Start a case container." },
+  { label: "{;", type: "keyword", detail: "block", info: "Start a block container." },
+  { label: "{|", type: "keyword", detail: "set", info: "Start a set container." },
+  { label: "{:", type: "keyword", detail: "tuple", info: "Start a tuple container." },
+  { label: "{@", type: "keyword", detail: "loop", info: "Start a loop container." },
+];
+
+function rixCompletionSource(context) {
+  const source = context.state.doc.toString();
+  if (!isInRixCell(source, context.pos)) return null;
+  const word = context.matchBefore(/[A-Za-z_][A-Za-z0-9_]*/);
+  const wordStart = word?.from ?? context.pos;
+  const systemMember = source[wordStart - 1] === ".";
+  if (systemMember) {
+    if (!word && !context.explicit) return null;
+    return { from: wordStart, options: systemCompletions };
+  }
+  if (!word && !context.explicit) return null;
+  return { from: wordStart, options: rixSyntaxCompletions };
+}
+
+const RIX_HOVER_HELP = new Map([
+  [":=", "Assign a value. RiX assignment targets lowercase identifiers."],
+  ["??", "Conditional operator. Use `condition ?? yes ?: no`."],
+  ["?:", "Fallback branch of a RiX conditional."],
+  ["{=", "Map container. Example: `{= radius=3}`."],
+  ["{?", "Case container."],
+  ["{;", "Block container."],
+  ["{|", "Set container."],
+  ["{:", "Tuple container."],
+  ["{@", "Loop container."],
+]);
+
+function rixHoverTooltip(view, position) {
+  const source = view.state.doc.toString();
+  if (!isInRixCell(source, position)) return null;
+  const before = source.slice(0, position + 1);
+  const match = before.match(/(?:\.[A-Za-z_][A-Za-z0-9_]*|:=|\?\?|\?:|\{[=\?;|:@])$/);
+  if (!match) return null;
+  const token = match[0];
+  const capability = token.startsWith(".") ? notebookSystemContext.get(token.slice(1).toUpperCase()) : null;
+  const message = capability?.doc || RIX_HOVER_HELP.get(token);
+  if (!message) return null;
+  return {
+    pos: position + 1 - token.length,
+    end: position + 1,
+    above: true,
+    create() {
+      const dom = document.createElement("div");
+      dom.className = "rix-editor-tooltip";
+      dom.textContent = message;
+      return { dom };
+    },
+  };
 }
 
 function extractFencedRanges(source) {
@@ -1379,6 +1486,13 @@ function refreshProjectControls() {
   projectManifest.setAttribute("aria-current", String(activeDocument.kind === "toml" && activeDocument.path === projects.project.path));
   addDelayedTreeSelection(projectManifest, () => loadToml(projects.project.path, "Project manifest"));
   projectTree.append(projectManifest);
+  const themeManifest = document.createElement("button");
+  themeManifest.type = "button";
+  themeManifest.className = "tree-manifest";
+  themeManifest.textContent = projects.project.themeExists ? "style.toml" : "style.toml (defaults)";
+  themeManifest.setAttribute("aria-current", String(activeDocument.kind === "theme"));
+  addDelayedTreeSelection(themeManifest, loadTheme);
+  projectTree.append(themeManifest);
   collapsedNotebooks.delete(projects.currentNotebookPath);
   for (const notebook of projects.notebookList) {
     const notebookEntry = document.createElement("section");
@@ -1445,19 +1559,23 @@ function refreshProjectControls() {
 
 async function saveNote() {
   if (!projects.isOpen) return;
-  if (activeDocument.kind === "toml") {
+  if (activeDocument.kind === "theme") {
+    await projects.saveTheme(editor.state.doc.toString());
+    applyProjectTheme(projects.project.theme);
+  } else if (activeDocument.kind === "toml") {
     await projects.saveManifest(activeDocument.path, editor.state.doc.toString());
   } else {
     await projects.saveCurrentNote(editor.state.doc.toString());
   }
   dirty = false;
   updateSaveButton();
-  setStatus(activeDocument.kind === "toml" ? "Saved manifest" : "Saved");
+  setStatus(activeDocument.kind === "note" ? "Saved" : "Saved configuration");
   refreshProjectControls();
 }
 
 async function loadNote(note) {
   activeDocument = { kind: "note", path: note.path };
+  applyProjectTheme(projects.project.theme);
   editorKind.textContent = "Markdown";
   setDocument(note.source);
   refreshProjectControls();
@@ -1487,6 +1605,14 @@ async function loadToml(path, label) {
   setDocument(await readTextFile(path));
   refreshProjectControls();
   setStatus(`Opened ${label}`);
+}
+
+async function loadTheme() {
+  activeDocument = { kind: "theme", path: projects.project.stylePath };
+  editorKind.textContent = "TOML";
+  setDocument(await projects.themeSource());
+  refreshProjectControls();
+  setStatus(projects.project.themeExists ? "Opened style.toml" : "Opened default style.toml; save to create it");
 }
 
 async function runProjectAction(action) {
@@ -1521,6 +1647,10 @@ const editor = new EditorView({
     doc: initialDocument,
     extensions: [
       basicSetup,
+      rixHighlighting,
+      autocompletion({ override: [rixCompletionSource] }),
+      rixNotebookLinter,
+      hoverTooltip(rixHoverTooltip),
       markdown({
         codeLanguages: (info) => /^rix(?:\s|$)/i.test(info) ? rixLanguage : null,
       }),
