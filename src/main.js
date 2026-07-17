@@ -18,10 +18,12 @@ import {
   createDefaultSystemContext,
   evaluate,
   formatValue,
+  isOutputValue,
   lower,
   parse,
   posToLineCol,
   tokenize,
+  renderOutputHtml,
 } from "../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
@@ -152,7 +154,7 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
 
   const results = run.statements.map((statement) => (
     `<div class="rix-preview-result rix-preview-result-${statement.kind}">`
-      + `<span>line ${statement.line}</span><pre>${escapeHtml(statement.content)}</pre></div>`
+      + `<span>line ${statement.line}</span>${statement.html || `<pre>${escapeHtml(statement.content)}</pre>`}</div>`
   )).join("");
   return `<div class="rix-preview-cell">${renderedCode}<div class="rix-preview-results">${results}</div></div>`;
 };
@@ -728,9 +730,10 @@ function appendOutput(statement) {
   source.textContent = statement.code.replaceAll("\n", " ↵ ");
   source.title = statement.code;
 
-  const value = document.createElement("pre");
+  const value = document.createElement(statement.html ? "div" : "pre");
   value.className = "cell-result-value";
-  value.textContent = statement.content.replaceAll("\n", " ↵ ");
+  if (statement.html) value.innerHTML = statement.html;
+  else value.textContent = statement.content.replaceAll("\n", " ↵ ");
   value.title = statement.content;
 
   result.append(lineNumber, source, value);
@@ -773,7 +776,15 @@ function executeCell(cell, runtime) {
         slider.name = sliderName;
         slider.line = line;
       }
-      statements.push({ line, code: source.code, content: formatValue(value), kind: "result", position: cell.start + source.start });
+      const format = (item) => formatValue(item);
+      statements.push({
+        line,
+        code: source.code,
+        content: format(value),
+        html: isOutputValue(value) ? renderOutputHtml(value, format) : null,
+        kind: "result",
+        position: cell.start + source.start,
+      });
     } catch (error) {
       statements.push({
         line,

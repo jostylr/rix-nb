@@ -778,6 +778,34 @@ body.is-resizing {
   white-space: nowrap;
 }
 
+.cell-result-value .rix-output-table,
+.cell-result-value .rix-output-grid,
+.rix-preview-result .rix-output-table,
+.rix-preview-result .rix-output-grid {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-result-value .rix-output-table th,
+.cell-result-value .rix-output-table td,
+.rix-preview-result .rix-output-table th,
+.rix-preview-result .rix-output-table td {
+  padding: 0.25rem 0.48rem;
+  border: 1px solid #cfd8e5;
+  text-align: right;
+}
+
+.cell-result-value .rix-output-table th,
+.rix-preview-result .rix-output-table th { background: #eaf1fa; }
+.cell-result-value .rix-output-grid td,
+.rix-preview-result .rix-output-grid td { padding: 0.16rem 0.38rem; text-align: right; }
+.cell-result-value .rix-grid-rule-left,
+.rix-preview-result .rix-grid-rule-left { border-right: 1px solid #34465c; }
+.cell-result-value .rix-grid-rule-top td,
+.rix-preview-result .rix-grid-rule-top td { border-top: 1px solid #34465c; }
+.cell-result-value .rix-output-figure figcaption,
+.rix-preview-result .rix-output-figure figcaption { margin-top: 0.32rem; color: #657080; font: 0.76rem/1.35 system-ui, sans-serif; }
+
 .rix-preview-cell {
   margin: 1rem 0;
 }
