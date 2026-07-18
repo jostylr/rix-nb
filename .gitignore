@@ -3,6 +3,7 @@ node_modules/
 dist/
 .vite/
 public/help/
+public/rix-live/
 *.log
 
 # Native Tauri and Rust build products

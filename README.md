@@ -91,6 +91,26 @@ cd chosen-export-folder/quarto
 quarto render
 ```
 
+### Live HTML and Quarto pages
+
+Add `live` to a RiX fence to make it an interactive widget in the standalone
+HTML and Quarto HTML / Reveal.js targets. The browser bundle is copied to
+`assets/rix-live/` only when an export contains a live cell. Cells share a
+page-level RiX context, and notebook sliders recompute the live results in
+source order.
+
+````markdown
+```rix hide-code live static:{report}
+parameter := .Slider(0:3, 1, 1);
+report := .Table(["x", "x²"], [[parameter, parameter^2]]);
+```
+````
+
+The `static:{report}` expression remains the fallback for rendered Markdown
+and every non-live publication target. The first live export intentionally
+ships a compact report widget—controls, result, and optional source disclosure
+rather than a full notebook editor.
+
 ## Development setup
 
 The project uses Bun for JavaScript tooling and Tauri 2 for the native macOS

@@ -3,21 +3,22 @@
 This ordinary Markdown note is the source of the report. It has normal KaTeX,
 such as $f(x) = x^2 - 2x + 1 = (x - 1)^2$, and computed prose.
 
-```rix hide static:{report}
-f := (x) -> x^2 - 2*x + 1;
-values := .Table(["x", "f(x)"], [[-1, 4], [0, 1], [1, 0], [2, 1], [3, 4]], {= caption = "Selected exact values" });
-division := .Algebra.SyntheticDivision(1, [1, -2, 1]);
-curve := .Plot.Polynomial([1, -2, 1], [-2, 4], {= size = [640, 360], stroke = "#2d6ca2" });
+```rix hide-code live static:{report}
+root := .Slider(0:3, 1, 2);
+values := .Table(["x", "f(x)"], [[0, root^2], [1, (1-root)^2], [2, (2-root)^2], [3, (3-root)^2]], {= caption = "Selected exact values" });
+division := .Algebra.SyntheticDivision(root, [1, -2*root, root^2]);
+curve := .Plot.Polynomial([1, -2*root, root^2], [-2, 4], {= size = [640, 360], stroke = "#2d6ca2" });
 report := .Fragment([
   .Heading(2, "Computed results"),
-  .Paragraph("The exact vertex is (1, 0)."),
+  .Paragraph("Move the parameter to change the exact vertex."),
   .Figure(values, "Selected values of the quadratic", "tbl-quadratic-values"),
   .Figure(curve, "Plot of the quadratic", "fig-quadratic-plot", "An upward-opening parabola"),
-  .Figure(division, "Synthetic division by x - 1", "tbl-synthetic-division")
+  .Figure(division, @"Synthetic division by x - @{root}", "tbl-synthetic-division")
 ]);
 ```
 
 The report object is omitted from the authored page, but `static:{report}`
-places its structured result here when exporting. Tables remain Markdown tables,
-the plot is saved as SVG under `assets/rix`, and the synthetic-division layout
-is retained as a presentation block.
+places its structured result here when exporting. In HTML and Quarto HTML, the
+same `live` cell becomes an interactive report with a parameter slider. Tables
+remain Markdown tables, the static plot is saved as SVG under `assets/rix`, and
+the synthetic-division layout is retained as a presentation block.

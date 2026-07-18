@@ -112,6 +112,7 @@ const markdownRenderer = new MarkdownIt({
 
 const exportMarkdownRenderer = new MarkdownIt({ html: false, linkify: true, typographer: true });
 const KATEX_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}katex/`, window.location.origin);
+const LIVE_RUNTIME_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}rix-live/`, window.location.origin);
 const HELP_PUBLIC_ROOT = new URL(`${import.meta.env.BASE_URL}help/`, window.location.origin);
 
 const defaultFenceRenderer = markdownRenderer.renderer.rules.fence;
@@ -994,6 +995,9 @@ function renderStaticDocument(document, runs, inlineRuns, options = {}) {
     if (node.type === "markdown") return node.source;
     if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
     const run = runs[node.value.index];
+    if (run?.metadata.live && options.liveCellPlaceholder) {
+      return `\n\n<!-- rix-live-cell:${node.value.index} -->\n\n`;
+    }
     if (!run?.staticOutput) return "";
     if (run.staticOutput.kind === "error") return `\n\n> **RiX export error:** ${run.staticOutput.content}\n\n`;
     return `\n\n${staticOutputMarkdown(run.staticOutput.value, { graphicReference })}\n\n`;
@@ -1365,9 +1369,27 @@ function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
   });
 }
 
-function staticHtmlDocument(title, staticSource, katexStylesheetPath) {
+function liveWidgetMarkup(index) {
+  return `<div class="rix-live-widget" data-rix-live-cell="${index}"></div>`;
+}
+
+function liveDocumentMarkup(source, runtimePath) {
+  const payload = JSON.stringify({ source }).replaceAll("<", "\\u003c");
+  return `<section id="rix-live-controls" class="rix-live-controls" hidden></section><script id="rix-live-document" type="application/json">${payload}</script><script type="module" src="${escapeHtml(runtimePath)}"></script>`;
+}
+
+function injectLiveWidgets(source) {
+  return source.replaceAll(/<!--\s*rix-live-cell:(\d+)\s*-->/g, (_match, index) => liveWidgetMarkup(index));
+}
+
+function liveRuntimePathForPage(relativePagePath) {
+  return relativePathBetween(relativePagePath, "assets/rix-live/rix-live.js");
+}
+
+function staticHtmlDocument(title, staticSource, katexStylesheetPath, liveSource = null, liveRuntimePath = null) {
   const holder = document.createElement("article");
   holder.innerHTML = exportMarkdownRenderer.render(staticSource);
+  if (liveSource) holder.innerHTML = injectLiveWidgets(holder.innerHTML);
   renderMathInElement(holder, {
     delimiters: [
       { left: "$$", right: "$$", display: true },
@@ -1377,7 +1399,8 @@ function staticHtmlDocument(title, staticSource, katexStylesheetPath) {
     ],
     throwOnError: false,
   });
-  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><style>body{max-width:52rem;margin:3rem auto;padding:0 1.25rem;color:#202124;font-family:system-ui,sans-serif;line-height:1.55}pre{overflow:auto;padding:1rem;background:#f4f2ec;border-radius:6px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}table{border-collapse:collapse;margin:1rem 0}th,td{padding:.35rem .55rem;border:1px solid #cfd8e5;text-align:left}th{background:#edf3fa}figcaption{color:#657080}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #9bb8dc;color:#4d5867}</style></head><body>${holder.innerHTML}</body></html>\n`;
+  const liveMarkup = liveSource && liveRuntimePath ? liveDocumentMarkup(liveSource, liveRuntimePath) : "";
+  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><style>body{max-width:52rem;margin:3rem auto;padding:0 1.25rem;color:#202124;font-family:system-ui,sans-serif;line-height:1.55}pre{overflow:auto;padding:1rem;background:#f4f2ec;border-radius:6px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}table{border-collapse:collapse;margin:1rem 0}th,td{padding:.35rem .55rem;border:1px solid #cfd8e5;text-align:left}th{background:#edf3fa}figcaption{color:#657080}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #9bb8dc;color:#4d5867}</style></head><body>${liveMarkup}${holder.innerHTML}</body></html>\n`;
 }
 
 function katexStylesheetForPage(relativeHtmlPath) {
@@ -1400,6 +1423,14 @@ async function copyKatexAssets(exportRoot) {
     if (!response.ok) throw new Error(`Could not load KaTeX font ${fontName} for export`);
     await writeFile(pathJoin(assetRoot, "fonts", fontName), new Uint8Array(await response.arrayBuffer()));
   }
+}
+
+async function copyLiveRuntimeAssets(exportRoot) {
+  const response = await fetch(new URL("rix-live.js", LIVE_RUNTIME_PUBLIC_ROOT));
+  if (!response.ok) throw new Error("Could not load the RiX live-export runtime. Run bun run build:live-runtime.");
+  const assetPath = pathJoin(exportRoot, "assets", "rix-live", "rix-live.js");
+  await mkdir(pathDirectory(assetPath), { recursive: true });
+  await writeFile(assetPath, new Uint8Array(await response.arrayBuffer()));
 }
 
 function markdownImageSources(source) {
@@ -1462,8 +1493,9 @@ async function materializeStaticGraphics(documentRun, relativeNotePath, exportRo
   return new Map([...references].map(([graphic, assetPath]) => [graphic, relativePathBetween(relativeNotePath, assetPath)]));
 }
 
-function quartoDocument(title, source, isSlideDeck) {
-  return `---\ntitle: ${JSON.stringify(title)}\nformat: ${isSlideDeck ? "revealjs" : "html"}\ntoc: ${isSlideDeck ? "false" : "true"}\n---\n\n${source}`;
+function quartoDocument(title, source, isSlideDeck, liveSource = null, liveRuntimePath = null) {
+  const content = liveSource ? `${liveDocumentMarkup(liveSource, liveRuntimePath)}\n\n${injectLiveWidgets(source)}` : source;
+  return `---\ntitle: ${JSON.stringify(title)}\nformat: ${isSlideDeck ? "revealjs" : "html"}\ntoc: ${isSlideDeck ? "false" : "true"}\n---\n\n${content}`;
 }
 
 function quartoProjectYaml(title, pages) {
@@ -1503,10 +1535,12 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
 
   const copiedAssets = new Set();
   const quartoPages = [];
+  const liveTargets = new Set();
   for (const notePath of notes) {
     const source = await readTextFile(notePath);
     const staticDocumentRun = executeDocument(source, { evaluateStatic: true });
     const relativePath = pathRelative(projects.project.directory, notePath);
+    const hasLiveCells = staticDocumentRun.runs.some((run) => run?.metadata.live);
     const staticSources = new Map();
     for (const [target, root] of Object.entries(outputRoots)) {
       if (!root) continue;
@@ -1515,8 +1549,12 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
         staticDocumentRun.document,
         staticDocumentRun.runs,
         staticDocumentRun.inlineRuns,
-        { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic) },
+        {
+          graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
+          liveCellPlaceholder: hasLiveCells && target !== "markdown",
+        },
       ));
+      if (hasLiveCells && target !== "markdown") liveTargets.add(target);
     }
     if (outputRoots.markdown) {
       const markdownPath = pathJoin(outputRoots.markdown, relativePath);
@@ -1532,6 +1570,8 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           notePath.split("/").at(-1).replace(/\.md$/, ""),
           staticSources.get("html"),
           katexStylesheetForPage(relativePath.replace(/\.md$/, ".html")),
+          hasLiveCells ? source : null,
+          hasLiveCells ? liveRuntimePathForPage(relativePath.replace(/\.md$/, ".html")) : null,
         ),
       );
     }
@@ -1545,6 +1585,8 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           notePath.split("/").at(-1).replace(/\.md$/, ""),
           staticSources.get("quarto"),
           staticDocumentHasSlides(staticDocumentRun),
+          hasLiveCells ? source : null,
+          hasLiveCells ? liveRuntimePathForPage(relativePath.replace(/\.md$/, ".qmd")) : null,
         ),
       );
       quartoPages.push({ path: quartoPath, title: notePath.split("/").at(-1).replace(/\.md$/, "") });
@@ -1569,6 +1611,7 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
     }
   }
   if (outputRoots.quarto) await writeTextFile(pathJoin(outputRoots.quarto, "_quarto.yml"), quartoProjectYaml(scopeName, quartoPages));
+  for (const target of liveTargets) await copyLiveRuntimeAssets(outputRoots[target]);
   setStatus(`Exported ${notes.length} note${notes.length === 1 ? "" : "s"}`);
   messageDialogTitle.textContent = "Export complete";
   messageDialogBody.textContent = `Wrote the selected output to ${exportRoot}.`;

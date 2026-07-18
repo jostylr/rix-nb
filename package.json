@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "tauri dev",
     "sync:help": "bun scripts/sync-help.mjs",
-    "dev:web": "bun run sync:help && vite --host 127.0.0.1 --port 1420",
+    "build:live-runtime": "vite build --config vite.live.config.js",
+    "dev:web": "bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
     "build": "tauri build",
-    "build:web": "bun run sync:help && vite build",
+    "build:web": "bun run sync:help && bun run build:live-runtime && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
