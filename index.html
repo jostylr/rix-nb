@@ -139,9 +139,10 @@ perimeter;
           <legend>Outputs</legend>
           <label><input id="export-markdown" type="checkbox" checked /> Markdown sources and referenced project assets</label>
           <label><input id="export-html" type="checkbox" checked /> Static HTML pages</label>
+          <label><input id="export-quarto" type="checkbox" checked /> Quarto project with static .qmd pages</label>
         </fieldset>
         <label class="quick-export-option"><input id="set-quick-export" type="checkbox" /> Use this scope for ⌘⇧E</label>
-        <p class="dialog-hint">Choose a destination folder after continuing. RiX code remains visible as source code in this initial export.</p>
+        <p class="dialog-hint">Choose a destination folder after continuing. Static RiX outputs are rendered into Markdown, HTML, and Quarto; generated SVG figures are placed under assets/rix.</p>
         <div class="dialog-actions">
           <button value="cancel" type="button" class="secondary-button">Cancel</button>
           <button value="confirm" type="submit">Choose destination…</button>

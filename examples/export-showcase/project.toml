@@ -1,0 +1,4 @@
+format_version = 1
+title = "RiX Static Export Showcase"
+quick_export_scope = "project"
+notebooks = ["Analysis/notebook.toml"]

@@ -31,6 +31,25 @@
   overflow: visible;
 }
 
+.rix-output-slides {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.rix-output-slide {
+  padding: 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.rix-output-slide > h2 {
+  margin: 0 0 0.65rem;
+  color: #334155;
+  font: 600 0.85rem system-ui, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }

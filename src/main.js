@@ -22,6 +22,7 @@ import {
   lower,
   parse,
   posToLineCol,
+  renderGraphicSvg,
   tokenize,
   renderOutputHtml,
 } from "../../rix/src/index.js";
@@ -79,6 +80,7 @@ const exportNotebookLabel = document.querySelector("#export-notebook-label");
 const exportNotebookSelect = document.querySelector("#export-notebook");
 const exportMarkdown = document.querySelector("#export-markdown");
 const exportHtml = document.querySelector("#export-html");
+const exportQuarto = document.querySelector("#export-quarto");
 const setQuickExport = document.querySelector("#set-quick-export");
 const appNotice = document.querySelector("#app-notice");
 const appNoticeMessage = document.querySelector("#app-notice-message");
@@ -99,6 +101,7 @@ let sidebarCollapsed = false;
 let sidebarProjectDirectory = null;
 let editorPaneRatio = null;
 let helpCatalog = null;
+let staticPreviewObjectUrls = [];
 const sliderOverrides = new Map();
 
 const markdownRenderer = new MarkdownIt({
@@ -183,7 +186,13 @@ markdownRenderer.renderer.rules.image = (tokens, index, options, env, self) => {
   return rendered;
 };
 
-function renderMarkdown(source, runs = latestRuns) {
+function releaseStaticPreviewObjectUrls() {
+  for (const url of staticPreviewObjectUrls) URL.revokeObjectURL(url);
+  staticPreviewObjectUrls = [];
+}
+
+function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets = false } = {}) {
+  if (!preserveStaticPreviewAssets) releaseStaticPreviewObjectUrls();
   preview.innerHTML = markdownRenderer.render(source, { rixRuns: runs, rixCellIndex: 0 });
   renderMathInElement(preview, {
     delimiters: [
@@ -804,7 +813,7 @@ function executeCell(cell, runtime) {
       for (const irNode of lower(parse(cell.metadata.staticExpression))) {
         value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
       }
-      staticOutput = { content: formatValue(value), kind: "result" };
+      staticOutput = { value, content: formatValue(value), kind: "result" };
     } catch (error) {
       staticOutput = { content: error instanceof Error ? error.message : String(error), kind: "error" };
     }
@@ -924,15 +933,70 @@ function executeDocument(source, options = {}) {
   };
 }
 
-function renderStaticDocument(document, runs, inlineRuns) {
+function escapeMarkdownCell(value) {
+  return String(value).replaceAll("|", "\\|").replaceAll("\n", "<br>");
+}
+
+function staticValueText(value) {
+  return formatValue(value);
+}
+
+function staticOutputMarkdown(value, { graphicReference = null, figureAlt = null } = {}) {
+  if (!isOutputValue(value)) return staticValueText(value);
+  if (value.kind === "text") return staticValueText(value.value);
+  if (value.kind === "paragraph") return value.children.map(staticValueText).join("");
+  if (value.kind === "heading") return `${"#".repeat(value.level)} ${staticValueText(value.content)}`;
+  if (value.kind === "fragment") {
+    return value.children.map((child) => staticOutputMarkdown(child, { graphicReference })).join("\n\n");
+  }
+  if (value.kind === "table") {
+    const headings = value.columns.map((column) => escapeMarkdownCell(column.label));
+    const rows = value.rows.map((row) => `| ${row.map((cell) => escapeMarkdownCell(staticValueText(cell))).join(" | ")} |`);
+    const table = [`| ${headings.join(" | ")} |`, `| ${headings.map(() => "---").join(" | ")} |`, ...rows].join("\n");
+    return [table, value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
+  }
+  if (value.kind === "grid") {
+    return `\`\`\`text\n${formatValue(value)}\n\`\`\``;
+  }
+  if (value.kind === "graphic") {
+    if (!graphicReference) return formatValue(value);
+    return `![${figureAlt || "RiX graphic"}](${graphicReference(value)})`;
+  }
+  if (value.kind === "figure") {
+    const content = staticOutputMarkdown(value.content, {
+      graphicReference,
+      figureAlt: value.alt || value.caption || figureAlt,
+    });
+    return [content, value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
+  }
+  if (value.kind === "slide") {
+    const heading = value.title ? `## ${value.title}` : "";
+    const content = staticOutputMarkdown(value.content, { graphicReference });
+    const notes = value.notes ? `<!-- Speaker notes: ${value.notes} -->` : "";
+    return ["---", heading, content, notes].filter(Boolean).join("\n\n");
+  }
+  if (value.kind === "slides") {
+    return value.slides.map((slide) => staticOutputMarkdown(slide, { graphicReference })).join("\n\n");
+  }
+  return formatValue(value);
+}
+
+function staticPreviewGraphicUrl(graphic) {
+  const url = URL.createObjectURL(new Blob([renderGraphicSvg(graphic)], { type: "image/svg+xml" }));
+  staticPreviewObjectUrls.push(url);
+  return url;
+}
+
+function renderStaticDocument(document, runs, inlineRuns, options = {}) {
   const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
+  const graphicReference = options.graphicReference || null;
   return document.content.map((node) => {
     if (node.type === "markdown") return node.source;
     if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
     const run = runs[node.value.index];
     if (!run?.staticOutput) return "";
-    const fence = run.staticOutput.kind === "error" ? "text" : "text";
-    return `\n\n\`\`\`${fence}\n${run.staticOutput.content}\n\`\`\`\n\n`;
+    if (run.staticOutput.kind === "error") return `\n\n> **RiX export error:** ${run.staticOutput.content}\n\n`;
+    return `\n\n${staticOutputMarkdown(run.staticOutput.value, { graphicReference })}\n\n`;
   }).join("");
 }
 
@@ -1008,7 +1072,14 @@ function renderDocumentPreview(documentRun) {
     return;
   }
   const staticRun = executeDocument(documentRun.document.source, { evaluateStatic: true });
-  renderMarkdown(staticRun.staticRenderedSource, []);
+  releaseStaticPreviewObjectUrls();
+  const staticSource = renderStaticDocument(
+    staticRun.document,
+    staticRun.runs,
+    staticRun.inlineRuns,
+    { graphicReference: staticPreviewGraphicUrl },
+  );
+  renderMarkdown(staticSource, [], { preserveStaticPreviewAssets: true });
 }
 
 function runNotebook() {
@@ -1294,9 +1365,9 @@ function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
   });
 }
 
-function staticHtmlDocument(title, source, katexStylesheetPath, documentRun = executeDocument(source, { evaluateStatic: true })) {
+function staticHtmlDocument(title, staticSource, katexStylesheetPath) {
   const holder = document.createElement("article");
-  holder.innerHTML = exportMarkdownRenderer.render(documentRun.staticRenderedSource);
+  holder.innerHTML = exportMarkdownRenderer.render(staticSource);
   renderMathInElement(holder, {
     delimiters: [
       { left: "$$", right: "$$", display: true },
@@ -1306,7 +1377,7 @@ function staticHtmlDocument(title, source, katexStylesheetPath, documentRun = ex
     ],
     throwOnError: false,
   });
-  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><style>body{max-width:52rem;margin:3rem auto;padding:0 1.25rem;color:#202124;font-family:system-ui,sans-serif;line-height:1.55}pre{overflow:auto;padding:1rem;background:#f4f2ec;border-radius:6px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #9bb8dc;color:#4d5867}</style></head><body>${holder.innerHTML}</body></html>\n`;
+  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><style>body{max-width:52rem;margin:3rem auto;padding:0 1.25rem;color:#202124;font-family:system-ui,sans-serif;line-height:1.55}pre{overflow:auto;padding:1rem;background:#f4f2ec;border-radius:6px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}table{border-collapse:collapse;margin:1rem 0}th,td{padding:.35rem .55rem;border:1px solid #cfd8e5;text-align:left}th{background:#edf3fa}figcaption{color:#657080}blockquote{margin-left:0;padding-left:1rem;border-left:3px solid #9bb8dc;color:#4d5867}</style></head><body>${holder.innerHTML}</body></html>\n`;
 }
 
 function katexStylesheetForPage(relativeHtmlPath) {
@@ -1347,8 +1418,61 @@ function projectPathForRelativeNote(notePath, source) {
   return pathJoin(projects.project.directory, ...resolved);
 }
 
-async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, quick = false }) {
-  if (!includeMarkdown && !includeHtml) throw new Error("Choose at least one export output");
+function relativePathBetween(fromFile, target) {
+  const from = pathDirectory(fromFile).split("/").filter((part) => part && part !== ".");
+  const to = target.split("/").filter(Boolean);
+  while (from.length && to.length && from[0] === to[0]) {
+    from.shift();
+    to.shift();
+  }
+  return [...from.map(() => ".."), ...to].join("/") || ".";
+}
+
+function visitOutputValue(value, callback) {
+  if (!isOutputValue(value)) return;
+  callback(value);
+  if (value.kind === "fragment") value.children.forEach((child) => visitOutputValue(child, callback));
+  if (value.kind === "figure" || value.kind === "slide") visitOutputValue(value.content, callback);
+  if (value.kind === "slides") value.slides.forEach((slide) => visitOutputValue(slide, callback));
+}
+
+function staticDocumentHasSlides(documentRun) {
+  return documentRun.runs.some((run) => {
+    let hasSlides = false;
+    visitOutputValue(run?.staticOutput?.value, (value) => { if (value.kind === "slides") hasSlides = true; });
+    return hasSlides;
+  });
+}
+
+async function materializeStaticGraphics(documentRun, relativeNotePath, exportRoot) {
+  const references = new Map();
+  let index = 0;
+  for (const run of documentRun.runs) {
+    visitOutputValue(run?.staticOutput?.value, (value) => {
+      if (value.kind !== "graphic" || references.has(value)) return;
+      index += 1;
+      references.set(value, pathJoin("assets", "rix", `${pathSlug(relativeNotePath.replace(/\.md$/, ""))}-figure-${index}.svg`));
+    });
+  }
+  for (const [graphic, assetPath] of references) {
+    const destination = pathJoin(exportRoot, assetPath);
+    await mkdir(pathDirectory(destination), { recursive: true });
+    await writeTextFile(destination, renderGraphicSvg(graphic));
+  }
+  return new Map([...references].map(([graphic, assetPath]) => [graphic, relativePathBetween(relativeNotePath, assetPath)]));
+}
+
+function quartoDocument(title, source, isSlideDeck) {
+  return `---\ntitle: ${JSON.stringify(title)}\nformat: ${isSlideDeck ? "revealjs" : "html"}\ntoc: ${isSlideDeck ? "false" : "true"}\n---\n\n${source}`;
+}
+
+function quartoProjectYaml(title, pages) {
+  const nav = pages.map(({ path, title: pageTitle }) => `      - href: ${JSON.stringify(path)}\n        text: ${JSON.stringify(pageTitle)}`).join("\n");
+  return `project:\n  type: website\n  output-dir: _site\n\nwebsite:\n  title: ${JSON.stringify(title)}\n  navbar:\n    left:\n${nav || "      []"}\n\nformat:\n  html:\n    toc: true\n`;
+}
+
+async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, includeQuarto, quick = false }) {
+  if (!includeMarkdown && !includeHtml && !includeQuarto) throw new Error("Choose at least one export output");
   if (dirty) await saveNote();
   const destination = await openDialog({
     title: quick ? "Choose a folder for quick export" : "Choose an export destination folder",
@@ -1367,46 +1491,84 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
       : projects.notebooks.get(notebookPath)?.title || "notebook";
   const exportRoot = pathJoin(destination, `${pathSlug(scopeName)}-export`);
   await mkdir(exportRoot, { recursive: true });
-  if (includeHtml) await copyKatexAssets(exportRoot);
+  const outputRoots = {
+    markdown: includeMarkdown ? pathJoin(exportRoot, "markdown") : null,
+    html: includeHtml ? pathJoin(exportRoot, "html") : null,
+    quarto: includeQuarto ? pathJoin(exportRoot, "quarto") : null,
+  };
+  for (const root of Object.values(outputRoots)) {
+    if (root) await mkdir(root, { recursive: true });
+  }
+  if (outputRoots.html) await copyKatexAssets(outputRoots.html);
 
   const copiedAssets = new Set();
+  const quartoPages = [];
   for (const notePath of notes) {
     const source = await readTextFile(notePath);
     const staticDocumentRun = executeDocument(source, { evaluateStatic: true });
     const relativePath = pathRelative(projects.project.directory, notePath);
-    const destinationBase = pathJoin(exportRoot, relativePath.replace(/\.md$/, ""));
-    if (includeMarkdown) {
-      const markdownPath = pathJoin(exportRoot, relativePath);
-      await mkdir(pathDirectory(markdownPath), { recursive: true });
-      await writeTextFile(markdownPath, staticDocumentRun.staticRenderedSource);
+    const staticSources = new Map();
+    for (const [target, root] of Object.entries(outputRoots)) {
+      if (!root) continue;
+      const graphicReferences = await materializeStaticGraphics(staticDocumentRun, relativePath, root);
+      staticSources.set(target, renderStaticDocument(
+        staticDocumentRun.document,
+        staticDocumentRun.runs,
+        staticDocumentRun.inlineRuns,
+        { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic) },
+      ));
     }
-    if (includeHtml) {
-      const htmlPath = `${destinationBase}.html`;
+    if (outputRoots.markdown) {
+      const markdownPath = pathJoin(outputRoots.markdown, relativePath);
+      await mkdir(pathDirectory(markdownPath), { recursive: true });
+      await writeTextFile(markdownPath, staticSources.get("markdown"));
+    }
+    if (outputRoots.html) {
+      const htmlPath = pathJoin(outputRoots.html, relativePath.replace(/\.md$/, ".html"));
       await mkdir(pathDirectory(htmlPath), { recursive: true });
       await writeTextFile(
         htmlPath,
         staticHtmlDocument(
           notePath.split("/").at(-1).replace(/\.md$/, ""),
-          source,
+          staticSources.get("html"),
           katexStylesheetForPage(relativePath.replace(/\.md$/, ".html")),
-          staticDocumentRun,
         ),
       );
+    }
+    if (outputRoots.quarto) {
+      const quartoPath = relativePath.replace(/\.md$/, ".qmd");
+      const fullQuartoPath = pathJoin(outputRoots.quarto, quartoPath);
+      await mkdir(pathDirectory(fullQuartoPath), { recursive: true });
+      await writeTextFile(
+        fullQuartoPath,
+        quartoDocument(
+          notePath.split("/").at(-1).replace(/\.md$/, ""),
+          staticSources.get("quarto"),
+          staticDocumentHasSlides(staticDocumentRun),
+        ),
+      );
+      quartoPages.push({ path: quartoPath, title: notePath.split("/").at(-1).replace(/\.md$/, "") });
     }
     for (const sourcePath of markdownImageSources(source)) {
       const assetPath = projectPathForRelativeNote(notePath, sourcePath);
       const relativeAssetPath = pathRelative(projects.project.directory, assetPath);
-      if (copiedAssets.has(relativeAssetPath) || assetPath === relativeAssetPath) continue;
-      copiedAssets.add(relativeAssetPath);
-      const assetDestination = pathJoin(exportRoot, relativeAssetPath);
-      try {
-        await mkdir(pathDirectory(assetDestination), { recursive: true });
-        await copyFile(assetPath, assetDestination);
-      } catch {
-        // A missing or externally referenced asset should not prevent text export.
+      if (assetPath === relativeAssetPath) continue;
+      for (const root of Object.values(outputRoots)) {
+        if (!root) continue;
+        const copyKey = `${root}:${relativeAssetPath}`;
+        if (copiedAssets.has(copyKey)) continue;
+        copiedAssets.add(copyKey);
+        const assetDestination = pathJoin(root, relativeAssetPath);
+        try {
+          await mkdir(pathDirectory(assetDestination), { recursive: true });
+          await copyFile(assetPath, assetDestination);
+        } catch {
+          // A missing or externally referenced asset should not prevent text export.
+        }
       }
     }
   }
+  if (outputRoots.quarto) await writeTextFile(pathJoin(outputRoots.quarto, "_quarto.yml"), quartoProjectYaml(scopeName, quartoPages));
   setStatus(`Exported ${notes.length} note${notes.length === 1 ? "" : "s"}`);
   messageDialogTitle.textContent = "Export complete";
   messageDialogBody.textContent = `Wrote the selected output to ${exportRoot}.`;
@@ -1429,6 +1591,7 @@ function openExportDialog() {
   exportScopeSelect.value = "note";
   exportMarkdown.checked = true;
   exportHtml.checked = true;
+  exportQuarto.checked = true;
   setQuickExport.checked = false;
   updateExportNotebookChoice();
   exportDialog.showModal();
@@ -1444,6 +1607,7 @@ function quickExport() {
     notebookPath: projects.currentNotebookPath,
     includeMarkdown: true,
     includeHtml: true,
+    includeQuarto: true,
     quick: true,
   }));
 }
@@ -1743,6 +1907,7 @@ exportDialog.addEventListener("close", () => {
       notebookPath,
       includeMarkdown: exportMarkdown.checked,
       includeHtml: exportHtml.checked,
+      includeQuarto: exportQuarto.checked,
     });
   });
 });

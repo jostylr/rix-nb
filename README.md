@@ -61,6 +61,36 @@ The preview renders `$inline$`, `$$display$$`, `\\(inline\\)`, and
 from the active note and are served through Tauri's asset protocol, so normal
 SVG project assets display in the native preview.
 
+## Static export
+
+Use **Export** (`Cmd-E`) to export the current note, a notebook, or the entire
+project as rendered Markdown, standalone static HTML, and/or a Quarto project.
+For a `rix` fence, `static:{expression}` evaluates the expression after that
+cell has run and inserts its value into every static target:
+
+````markdown
+```rix hide static:{report}
+report := .Figure(.Plot.Polynomial([1, -2, 1], [-2, 4]), "A quadratic");
+```
+````
+
+Each selected target gets its own root: `markdown/`, `html/`, or `quarto/`.
+Structured RiX outputs remain structured during export: text, headings,
+fragments, and tables become Markdown; graphics become SVG files under that
+target's `assets/rix/`; figures reference those assets; mathematical grids are
+retained as presentation blocks. The Quarto output is an ordinary project with a
+`_quarto.yml` and static `.qmd` pages. A `.Slides(...)` result makes its page a
+Reveal.js Quarto page.
+
+`examples/export-showcase/` is an openable project that exercises reports,
+tables, plots, figures, synthetic division, and slides. Quarto is only needed
+to render the generated project, not to create it. With Quarto installed:
+
+```sh
+cd chosen-export-folder/quarto
+quarto render
+```
+
 ## Development setup
 
 The project uses Bun for JavaScript tooling and Tauri 2 for the native macOS
@@ -98,12 +128,12 @@ Tauri writes development and build artifacts below `src-tauri/target/`; they are
 intentionally ignored. A distributable app for other Macs will eventually need
 Apple signing and notarization, but neither is required for local development.
 
-## Proposed next slices
+## Next slices
 
-1. Add project/note file operations and `project.toml` / `notebook.toml` parsing.
-2. Add a dedicated RiX CodeMirror language package, completion, and diagnostics.
-3. Upgrade the result panel to show source-span-aware, per-statement output.
-4. Build the shared document model and static Markdown/HTML export.
+1. Add named export profiles to `project.toml` and `notebook.toml`.
+2. Preserve figure labels/cross-references and add PNG output where a target needs it.
+3. Add a dedicated RiX CodeMirror language package, completion, and diagnostics.
+4. Package live RiX cells for optional interactive HTML export.
 
 ## Design notes
 
