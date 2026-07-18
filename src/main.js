@@ -29,6 +29,7 @@ import {
 import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
 import { applyProjectTheme } from "./theme.js";
+import { gridLatex } from "./output-latex.js";
 import "./styles.css";
 
 const editorHost = document.querySelector("#markdown-editor");
@@ -1053,7 +1054,7 @@ function staticOutputMarkdown(value, { graphicReference = null, figureAlt = null
     return [table, value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
   }
   if (value.kind === "grid") {
-    return `\`\`\`text\n${formatValue(value)}\n\`\`\``;
+    return gridLatex(value, formatValue);
   }
   if (value.kind === "graphic") {
     if (!graphicReference) return formatValue(value);
@@ -1105,16 +1106,23 @@ function renderStaticDocument(document, runs, inlineRuns, options = {}) {
   }).join("");
 }
 
+function quartoRuntimeSourceMarkup(cell) {
+  const header = escapeHtml(cell.metadata.raw);
+  return `\n\n::: {.content-hidden when-format="pdf"}\n\`\`\`{.rix .rix-runtime-source data-rix-source-cell="true" data-rix-cell="${cell.index}" data-rix-header="${header}" style="display: none"}\n${cell.code.trimEnd()}\n\`\`\`\n:::\n\n`;
+}
+
 function renderQuartoDocumentContent(document, runs, inlineRuns, options = {}) {
   const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
   const graphicReference = options.graphicReference || null;
+  const includeRuntimeSource = options.includeRuntimeSource === true;
   return document.content.map((node) => {
     if (node.type === "markdown") return node.source;
     if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
     const run = runs[node.value.index];
     const staticContent = staticCellReplacement(run, graphicReference);
-    if (!run?.metadata.live) return staticContent ? `\n\n${staticContent}\n\n` : "";
-    return `\n\n::: {.rix-static}\n${staticContent}\n:::\n\n::: {.rix-live}\n${liveWidgetMarkup(node.value.index)}\n:::\n\n`;
+    const runtimeSource = includeRuntimeSource ? quartoRuntimeSourceMarkup(node.value) : "";
+    if (!run?.metadata.live) return `${runtimeSource}${staticContent ? `\n\n${staticContent}\n\n` : ""}`;
+    return `${runtimeSource}\n\n::: {.rix-static}\n${staticContent}\n:::\n\n::: {.rix-live}\n${liveWidgetMarkup(node.value.index, node.value.metadata.showCode)}\n:::\n\n`;
   }).join("");
 }
 
@@ -1487,13 +1495,18 @@ function getScopeNotes(scope, notebookPath = projects.currentNotebookPath) {
   });
 }
 
-function liveWidgetMarkup(index) {
-  return `<div class="rix-live-widget" data-rix-live-cell="${index}"></div>`;
+function liveWidgetMarkup(index, showCode = null) {
+  const codeAttribute = showCode === null ? "" : ` data-rix-show-code="${showCode ? "true" : "false"}"`;
+  return `<div class="rix-live-widget" data-rix-live-cell="${index}"${codeAttribute}></div>`;
 }
 
 function liveDocumentMarkup(source, runtimePath) {
   const payload = JSON.stringify({ source }).replaceAll("<", "\\u003c");
   return `<section id="rix-live-controls" class="rix-live-controls" hidden></section><script id="rix-live-document" type="application/json">${payload}</script><script type="module" src="${escapeHtml(runtimePath)}"></script>`;
+}
+
+function liveRuntimeMarkup(runtimePath, katexStylesheetPath) {
+  return `<section id="rix-live-controls" class="rix-live-controls" hidden></section><link rel="stylesheet" href="${escapeHtml(katexStylesheetPath)}" /><script type="module" src="${escapeHtml(runtimePath)}"></script>`;
 }
 
 function injectLiveWidgets(source) {
@@ -1611,8 +1624,9 @@ async function materializeStaticGraphics(documentRun, relativeNotePath, exportRo
   return new Map([...references].map(([graphic, assetPath]) => [graphic, relativePathBetween(relativeNotePath, assetPath)]));
 }
 
-function quartoDocument(title, source, isSlideDeck, liveSource = null, liveRuntimePath = null) {
-  const content = liveSource ? `${liveDocumentMarkup(liveSource, liveRuntimePath)}\n\n${source}` : source;
+function quartoDocument(title, source, isSlideDeck, liveRuntimePath = null, katexStylesheetPath = null) {
+  const liveMarkup = liveRuntimePath && katexStylesheetPath ? liveRuntimeMarkup(liveRuntimePath, katexStylesheetPath) : "";
+  const content = liveMarkup ? `${liveMarkup}\n\n${source}` : source;
   return `---\ntitle: ${JSON.stringify(title)}\nformat: ${isSlideDeck ? "revealjs" : "html"}\ntoc: ${isSlideDeck ? "false" : "true"}\n---\n\n${content}`;
 }
 
@@ -1650,6 +1664,7 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
     if (root) await mkdir(root, { recursive: true });
   }
   if (outputRoots.html) await copyKatexAssets(outputRoots.html);
+  if (outputRoots.quarto) await copyKatexAssets(outputRoots.quarto);
 
   const copiedAssets = new Set();
   const quartoPages = [];
@@ -1677,7 +1692,10 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           staticDocumentRun.document,
           staticDocumentRun.runs,
           staticDocumentRun.inlineRuns,
-          { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic) },
+          {
+            graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
+            includeRuntimeSource: hasLiveCells,
+          },
         ));
       }
       if (hasLiveCells && target !== "markdown") liveTargets.add(target);
@@ -1711,8 +1729,8 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           notePath.split("/").at(-1).replace(/\.md$/, ""),
           staticSources.get("quarto"),
           staticDocumentHasSlides(staticDocumentRun),
-          hasLiveCells ? source : null,
           hasLiveCells ? liveRuntimePathForPage(relativePath.replace(/\.md$/, ".qmd")) : null,
+          hasLiveCells ? katexStylesheetForPage(relativePath.replace(/\.md$/, ".qmd")) : null,
         ),
       );
       quartoPages.push({ path: quartoPath, title: notePath.split("/").at(-1).replace(/\.md$/, "") });

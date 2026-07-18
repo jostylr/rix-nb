@@ -89,9 +89,9 @@ Each selected target gets its own root: `markdown/`, `html/`, or `quarto/`.
 Structured RiX outputs remain structured during export: text, headings,
 fragments, and tables become Markdown; graphics become SVG files under that
 target's `assets/rix/`; figures reference those assets; mathematical grids are
-retained as presentation blocks. The Quarto output is an ordinary project with a
-`_quarto.yml` and static `.qmd` pages. A `.Slides(...)` result makes its page a
-Reveal.js Quarto page.
+rendered as display LaTeX arrays, including their horizontal and vertical
+rules. The Quarto output is an ordinary project with a `_quarto.yml` and static
+`.qmd` pages. A `.Slides(...)` result makes its page a Reveal.js Quarto page.
 
 `examples/export-showcase/` is an openable project that exercises reports,
 tables, plots, figures, synthetic division, and slides. Quarto is only needed
@@ -124,8 +124,14 @@ for each live cell. The static section remains usable without JavaScript; once
 the RiX browser runtime starts, it shows the live section and hides that
 fallback. The first live export intentionally ships a compact report widget—
 controls, result, and optional source disclosure rather than a full notebook
-editor. It uses a browser-native module rather than requiring an Observable
-runtime, so it works equally in ordinary Quarto HTML pages and Reveal.js.
+editor. For a live Quarto page, RiX fences are also woven into the `.qmd` as
+ordered `.rix-runtime-source` code blocks. The shared `assets/rix-live/`
+harness discovers those blocks and evaluates them as one page-level context,
+so the live source remains inspectable and editable in the exported project.
+It uses a browser-native module rather than requiring an Observable runtime,
+so it works equally in ordinary Quarto HTML pages and Reveal.js. Live grids,
+including synthetic division, are rendered by KaTeX from the same LaTeX-array
+serializer used by static exports.
 
 ## Development setup
 

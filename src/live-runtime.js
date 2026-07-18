@@ -1,4 +1,5 @@
 import { Integer, Rational, RationalInterval } from "@ratmath/core";
+import renderMathInElement from "katex/contrib/auto-render";
 import {
   Context,
   createDefaultRegistry,
@@ -10,17 +11,27 @@ import {
   parse,
   renderOutputHtml,
 } from "../../rix/src/index.js";
+import { gridLatex } from "./output-latex.js";
 
 const payloadElement = document.querySelector("#rix-live-document");
+const sourceCellElements = [...document.querySelectorAll("[data-rix-source-cell]")];
 
-if (payloadElement) {
-  const payload = JSON.parse(payloadElement.textContent);
+if (payloadElement || sourceCellElements.length) {
+  const payload = payloadElement ? JSON.parse(payloadElement.textContent) : null;
   const controls = document.querySelector("#rix-live-controls");
   const sliderOverrides = new Map();
 
   installStyles();
   document.documentElement.classList.add("rix-live-ready");
+  hideRuntimeSources();
   run();
+
+  function hideRuntimeSources() {
+    for (const sourceCell of sourceCellElements) {
+      sourceCell.hidden = true;
+      sourceCell.style.setProperty("display", "none", "important");
+    }
+  }
 
   function extractCells(source) {
     const pattern = /^```rix(?:[ \t]+([^\n]*))?[ \t]*\n([\s\S]*?)^```[ \t]*$/gim;
@@ -32,6 +43,14 @@ if (payloadElement) {
       index += 1;
     }
     return cells;
+  }
+
+  function extractSourceCells(elements) {
+    return elements.map((element, position) => ({
+      index: Number(element.dataset.rixCell ?? position),
+      code: (element.matches("code") ? element : element.querySelector("code"))?.textContent || "",
+      metadata: parseMetadata(element.dataset.rixHeader || ""),
+    })).sort((left, right) => left.index - right.index);
   }
 
   function parseMetadata(header) {
@@ -191,7 +210,7 @@ if (payloadElement) {
   }
 
   function run() {
-    const cells = extractCells(payload.source);
+    const cells = payload ? extractCells(payload.source) : extractSourceCells(sourceCellElements);
     const sliders = [];
     const runtime = makeRuntime(sliders);
     for (const cell of cells) {
@@ -204,7 +223,10 @@ if (payloadElement) {
   function renderWidget(cell, execution) {
     const widget = document.querySelector(`[data-rix-live-cell="${cell.index}"]`);
     if (!widget) return;
-    const code = cell.metadata.showCode ? `<details class="rix-live-source"><summary>RiX code</summary><pre><code>${escapeLiveHtml(cell.code)}</code></pre></details>` : "";
+    const showCode = widget.dataset.rixShowCode === undefined
+      ? cell.metadata.showCode
+      : widget.dataset.rixShowCode === "true";
+    const code = showCode ? `<details class="rix-live-source"><summary>RiX code</summary><pre><code>${escapeLiveHtml(cell.code)}</code></pre></details>` : "";
     const result = execution.liveResult || execution.results.at(-1);
     let output = "";
     if (cell.metadata.showOutput && result) {
@@ -213,11 +235,31 @@ if (payloadElement) {
         : `<div class="rix-live-output">${renderLiveValue(result.value)}</div>`;
     }
     widget.innerHTML = `${code}${output}`;
+    renderMathInElement(widget, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false },
+        { left: "\\(", right: "\\)", display: false },
+        { left: "\\[", right: "\\]", display: true },
+      ],
+      throwOnError: false,
+    });
+    normalizeLiveTables(widget);
+  }
+
+  function normalizeLiveTables(widget) {
+    for (const table of widget.querySelectorAll("table.rix-output-table")) {
+      table.style.setProperty("display", "inline-table", "important");
+      table.style.setProperty("width", "auto", "important");
+      table.style.setProperty("max-width", "100%", "important");
+      table.style.setProperty("table-layout", "auto", "important");
+      for (const cell of table.querySelectorAll("th, td")) cell.style.setProperty("width", "auto", "important");
+    }
   }
 
   function renderLiveValue(value) {
     if (!isOutputValue(value)) return `<pre>${escapeLiveHtml(formatValue(value))}</pre>`;
-    if (value.kind === "grid") return `<pre class="rix-live-math-grid">${escapeLiveHtml(formatValue(value))}</pre>`;
+    if (value.kind === "grid") return `<div class="rix-live-math-grid">${gridLatex(value, formatValue)}</div>`;
     if (value.kind === "fragment") return value.children.map(renderLiveValue).join("");
     if (value.kind === "figure") {
       return `<figure>${renderLiveValue(value.content)}${value.caption ? `<figcaption>${escapeLiveHtml(value.caption)}</figcaption>` : ""}</figure>`;
@@ -260,7 +302,7 @@ if (payloadElement) {
     if (document.querySelector("#rix-live-styles")) return;
     const style = document.createElement("style");
     style.id = "rix-live-styles";
-    style.textContent = ".rix-live-ready .rix-static{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output th,.rix-live-output td{padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}";
+    style.textContent = ".rix-live-ready .rix-static,.rix-live-ready .rix-runtime-source,.rix-live-ready [data-rix-source-cell]{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{overflow:auto;margin:1rem 0}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output .rix-output-table{display:inline-table!important;width:auto!important;max-width:100%;table-layout:auto}.rix-live-output th,.rix-live-output td{width:auto!important;padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}";
     document.head.append(style);
   }
 }
