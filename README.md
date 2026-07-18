@@ -66,13 +66,24 @@ SVG project assets display in the native preview.
 Use **Export** (`Cmd-E`) to export the current note, a notebook, or the entire
 project as rendered Markdown, standalone static HTML, and/or a Quarto project.
 For a `rix` fence, `static:{expression}` evaluates the expression after that
-cell has run and inserts its value into every static target:
+cell has run and inserts its value into every static target. A directive can
+also pin named notebook sliders for deterministic export:
 
 ````markdown
 ```rix hide static:{report}
 report := .Figure(.Plot.Polynomial([1, -2, 1], [-2, 4]), "A quadratic");
 ```
+
+```rix hide static:{root=1; output=report}
+root := .Slider(0:3, 1, 2);
+report := .Table(["root"], [[root]]);
+```
 ````
+
+Within a directive, semicolon-separated `name=value` entries are static
+slider values and the final bare expression (or `output=...`) is the rendered
+value. Parameters apply to the note's static run, so a later static directive
+can intentionally refine an earlier value for the same slider.
 
 Each selected target gets its own root: `markdown/`, `html/`, or `quarto/`.
 Structured RiX outputs remain structured during export: text, headings,
@@ -94,22 +105,27 @@ quarto render
 ### Live HTML and Quarto pages
 
 Add `live` to a RiX fence to make it an interactive widget in the standalone
-HTML and Quarto HTML / Reveal.js targets. The browser bundle is copied to
+HTML and Quarto HTML / Reveal.js targets. `live:{expression}` is the explicit
+form when the live result should be a named object rather than the cell's last
+value. The browser bundle is copied to
 `assets/rix-live/` only when an export contains a live cell. Cells share a
 page-level RiX context, and notebook sliders recompute the live results in
 source order.
 
 ````markdown
-```rix hide-code live static:{report}
+```rix hide-code live:{report} static:{parameter=1; report}
 parameter := .Slider(0:3, 1, 1);
 report := .Table(["x", "x²"], [[parameter, parameter^2]]);
 ```
 ````
 
-The `static:{report}` expression remains the fallback for rendered Markdown
-and every non-live publication target. The first live export intentionally
-ships a compact report widget—controls, result, and optional source disclosure
-rather than a full notebook editor.
+Quarto pages contain both `::: {.rix-static}` and `::: {.rix-live}` sections
+for each live cell. The static section remains usable without JavaScript; once
+the RiX browser runtime starts, it shows the live section and hides that
+fallback. The first live export intentionally ships a compact report widget—
+controls, result, and optional source disclosure rather than a full notebook
+editor. It uses a browser-native module rather than requiring an Observable
+runtime, so it works equally in ordinary Quarto HTML pages and Reveal.js.
 
 ## Development setup
 

@@ -294,8 +294,8 @@ function tokenizeFenceMetadata(header) {
     while (/\s/.test(header[index] || "")) index += 1;
     if (index >= header.length) break;
     const start = index;
-    if (header.startsWith("static:{", index)) {
-      index += "static:".length;
+    if (header.startsWith("static:{", index) || header.startsWith("live:{", index)) {
+      index += header.startsWith("static:{", index) ? "static:".length : "live:".length;
       let depth = 0;
       let quote = null;
       let escaped = false;
@@ -326,15 +326,56 @@ function tokenizeFenceMetadata(header) {
   return tokens;
 }
 
+function splitDirectiveParts(source) {
+  const parts = [];
+  let start = 0;
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if ("([{".includes(character)) depth += 1;
+    else if (")]}".includes(character)) depth = Math.max(0, depth - 1);
+    else if (character === ";" && depth === 0) {
+      parts.push(source.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(source.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function parseOutputDirective(source) {
+  const parameters = new Map();
+  let expression = null;
+  for (const part of splitDirectiveParts(source)) {
+    const assignment = part.match(/^([a-z][a-zA-Z0-9_]*)\s*=\s*([\s\S]+)$/);
+    if (assignment) {
+      if (assignment[1] === "output") expression = assignment[2].trim();
+      else parameters.set(assignment[1], assignment[2].trim());
+    } else {
+      expression = part;
+    }
+  }
+  return { expression, parameters };
+}
+
 function parseFenceMetadata(header) {
   const metadata = {
     raw: header.trim(),
     flags: new Set(),
     execution: "linear",
     live: false,
+    liveExpression: null,
     showCode: true,
     showOutput: true,
     staticExpression: null,
+    staticParameters: new Map(),
     unknown: [],
   };
   for (const token of tokenizeFenceMetadata(header.trim())) {
@@ -365,7 +406,14 @@ function parseFenceMetadata(header) {
     } else if (normalized === "hide-output") {
       metadata.showOutput = false;
     } else if (token.startsWith("static:{") && token.endsWith("}")) {
-      metadata.staticExpression = token.slice("static:{".length, -1).trim();
+      const directive = parseOutputDirective(token.slice("static:{".length, -1).trim());
+      metadata.staticExpression = directive.expression;
+      metadata.staticParameters = directive.parameters;
+    } else if (token.startsWith("live:{") && token.endsWith("}")) {
+      const directive = parseOutputDirective(token.slice("live:{".length, -1).trim());
+      metadata.flags.add("live");
+      metadata.live = true;
+      metadata.liveExpression = directive.expression;
     } else {
       metadata.unknown.push(token);
     }
@@ -683,7 +731,16 @@ function inferSliderConfig(args) {
 function createNotebookSlider(args, runtime) {
   const config = inferSliderConfig(args);
   const id = `${runtime.currentSourceId}:${runtime.sliderCounter++}`;
-  const index = Math.max(0, Math.min(config.steps, runtime.sliderOverrides.get(id) ?? config.startIndex));
+  const parameterValue = runtime.currentSliderName
+    ? runtime.staticParameters.get(runtime.currentSliderName)
+    : undefined;
+  const parameterIndex = parameterValue === undefined
+    ? undefined
+    : Math.round((asRational(parameterValue, `Static value for ${runtime.currentSliderName}`).toNumber() - config.low.toNumber()) / config.step.toNumber());
+  const index = Math.max(0, Math.min(
+    config.steps,
+    parameterIndex ?? runtime.sliderOverrides.get(id) ?? config.startIndex,
+  ));
   const value = config.low.add(config.step.multiply(new Integer(BigInt(index))));
   let valueWidth = 1;
   const widthSamples = Math.min(config.steps, 200);
@@ -705,7 +762,9 @@ function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
     sliderOverrides: overrides,
     sliders: [],
     currentSourceId: "document",
+    currentSliderName: null,
     evaluateStatic: options.evaluateStatic === true,
+    staticParameters: options.staticParameters || new Map(),
   };
   const systemContext = createDefaultSystemContext({ frozen: false });
   systemContext.register("SLIDER", {
@@ -779,13 +838,15 @@ function executeCell(cell, runtime) {
     const sourceLine = posToLineCol(cell.code, source.start).line;
     const line = cell.codeLine + sourceLine - 1;
     try {
+      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*(?:\.|@_)?Slider\s*\(/)?.[1] || "Slider";
+      runtime.currentSliderName = sliderName;
       const sliderStart = runtime.sliders.length;
       const value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
-      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*(?:\.|@_)?Slider\s*\(/)?.[1] || "Slider";
       for (const slider of runtime.sliders.slice(sliderStart)) {
         slider.name = sliderName;
         slider.line = line;
       }
+      runtime.currentSliderName = null;
       const format = (item) => formatValue(item);
       statements.push({
         line,
@@ -796,6 +857,7 @@ function executeCell(cell, runtime) {
         position: cell.start + source.start,
       });
     } catch (error) {
+      runtime.currentSliderName = null;
       statements.push({
         line,
         code: source.code,
@@ -872,7 +934,7 @@ function replaceInlineExpressions(source, inlineRuns) {
 function executeDocument(source, options = {}) {
   const document = parseNotebookDocument(source);
   const { cells, inlines } = document;
-  const runtime = makeNotebookRuntime(sliderOverrides, options);
+  const runtime = makeNotebookRuntime(options.sliderOverrides || sliderOverrides, options);
   const runs = new Array(cells.length);
   const inlineRuns = [];
   const outputStatements = [];
@@ -934,6 +996,40 @@ function executeDocument(source, options = {}) {
   };
 }
 
+// A static directive may pin notebook slider values for an export.  The
+// expressions are evaluated separately so static output never inherits the
+// temporary slider positions from the authoring session.
+function staticParameterOverrides(document) {
+  const expressions = new Map();
+  for (const cell of document.cells) {
+    for (const [name, expression] of cell.metadata.staticParameters || []) {
+      expressions.set(name, expression);
+    }
+  }
+  if (expressions.size === 0) return new Map();
+
+  const runtime = makeNotebookRuntime(new Map());
+  const context = runtime.context;
+  context.setEnv("__system_context__", runtime.systemContext);
+  context.setEnv("__registry__", runtime.registry);
+  const overrides = new Map();
+  for (const [name, expression] of expressions) {
+    try {
+      context.setEnv("__source__", expression);
+      let value;
+      const nodes = lower(parse(expression));
+      if (nodes.length === 0) throw new Error("expression is empty");
+      for (const node of nodes) value = evaluate(node, context, runtime.registry, runtime.systemContext);
+      asRational(value, `Static value for ${name}`);
+      overrides.set(name, value);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid static parameter ${name}=${expression}: ${message}`);
+    }
+  }
+  return overrides;
+}
+
 function escapeMarkdownCell(value) {
   return String(value).replaceAll("|", "\\|").replaceAll("\n", "<br>");
 }
@@ -988,6 +1084,12 @@ function staticPreviewGraphicUrl(graphic) {
   return url;
 }
 
+function staticCellReplacement(run, graphicReference) {
+  if (!run?.staticOutput) return "";
+  if (run.staticOutput.kind === "error") return `> **RiX export error:** ${run.staticOutput.content}`;
+  return staticOutputMarkdown(run.staticOutput.value, { graphicReference });
+}
+
 function renderStaticDocument(document, runs, inlineRuns, options = {}) {
   const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
   const graphicReference = options.graphicReference || null;
@@ -998,9 +1100,21 @@ function renderStaticDocument(document, runs, inlineRuns, options = {}) {
     if (run?.metadata.live && options.liveCellPlaceholder) {
       return `\n\n<!-- rix-live-cell:${node.value.index} -->\n\n`;
     }
-    if (!run?.staticOutput) return "";
-    if (run.staticOutput.kind === "error") return `\n\n> **RiX export error:** ${run.staticOutput.content}\n\n`;
-    return `\n\n${staticOutputMarkdown(run.staticOutput.value, { graphicReference })}\n\n`;
+    const replacement = staticCellReplacement(run, graphicReference);
+    return replacement ? `\n\n${replacement}\n\n` : "";
+  }).join("");
+}
+
+function renderQuartoDocumentContent(document, runs, inlineRuns, options = {}) {
+  const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
+  const graphicReference = options.graphicReference || null;
+  return document.content.map((node) => {
+    if (node.type === "markdown") return node.source;
+    if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
+    const run = runs[node.value.index];
+    const staticContent = staticCellReplacement(run, graphicReference);
+    if (!run?.metadata.live) return staticContent ? `\n\n${staticContent}\n\n` : "";
+    return `\n\n::: {.rix-static}\n${staticContent}\n:::\n\n::: {.rix-live}\n${liveWidgetMarkup(node.value.index)}\n:::\n\n`;
   }).join("");
 }
 
@@ -1075,7 +1189,11 @@ function renderDocumentPreview(documentRun) {
     renderMarkdown(documentRun.renderedSource, documentRun.runs);
     return;
   }
-  const staticRun = executeDocument(documentRun.document.source, { evaluateStatic: true });
+  const staticRun = executeDocument(documentRun.document.source, {
+    evaluateStatic: true,
+    sliderOverrides: new Map(),
+    staticParameters: staticParameterOverrides(documentRun.document),
+  });
   releaseStaticPreviewObjectUrls();
   const staticSource = renderStaticDocument(
     staticRun.document,
@@ -1494,7 +1612,7 @@ async function materializeStaticGraphics(documentRun, relativeNotePath, exportRo
 }
 
 function quartoDocument(title, source, isSlideDeck, liveSource = null, liveRuntimePath = null) {
-  const content = liveSource ? `${liveDocumentMarkup(liveSource, liveRuntimePath)}\n\n${injectLiveWidgets(source)}` : source;
+  const content = liveSource ? `${liveDocumentMarkup(liveSource, liveRuntimePath)}\n\n${source}` : source;
   return `---\ntitle: ${JSON.stringify(title)}\nformat: ${isSlideDeck ? "revealjs" : "html"}\ntoc: ${isSlideDeck ? "false" : "true"}\n---\n\n${content}`;
 }
 
@@ -1538,7 +1656,12 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
   const liveTargets = new Set();
   for (const notePath of notes) {
     const source = await readTextFile(notePath);
-    const staticDocumentRun = executeDocument(source, { evaluateStatic: true });
+    const sourceDocument = parseNotebookDocument(source);
+    const staticDocumentRun = executeDocument(source, {
+      evaluateStatic: true,
+      sliderOverrides: new Map(),
+      staticParameters: staticParameterOverrides(sourceDocument),
+    });
     const relativePath = pathRelative(projects.project.directory, notePath);
     const hasLiveCells = staticDocumentRun.runs.some((run) => run?.metadata.live);
     const staticSources = new Map();
@@ -1546,14 +1669,17 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
       if (!root) continue;
       const graphicReferences = await materializeStaticGraphics(staticDocumentRun, relativePath, root);
       staticSources.set(target, renderStaticDocument(
-        staticDocumentRun.document,
-        staticDocumentRun.runs,
-        staticDocumentRun.inlineRuns,
-        {
-          graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
-          liveCellPlaceholder: hasLiveCells && target !== "markdown",
-        },
+        staticDocumentRun.document, staticDocumentRun.runs, staticDocumentRun.inlineRuns,
+        { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic), liveCellPlaceholder: hasLiveCells && target === "html" },
       ));
+      if (target === "quarto") {
+        staticSources.set(target, renderQuartoDocumentContent(
+          staticDocumentRun.document,
+          staticDocumentRun.runs,
+          staticDocumentRun.inlineRuns,
+          { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic) },
+        ));
+      }
       if (hasLiveCells && target !== "markdown") liveTargets.add(target);
     }
     if (outputRoots.markdown) {
