@@ -55,6 +55,34 @@ Project/
 `notebook.toml` contains an ordered list of note paths. The project bar creates,
 selects, opens, and saves those files. `Cmd-S` saves the active note.
 
+### Plugins
+
+The notebook has two deliberately separate plugin locations.
+
+- **Bundled, trusted plugins** live in
+  `rix-nb/src/bundled-plugin-catalog.js`. Their JavaScript is imported there,
+  so it becomes part of the signed/application build. They are exposed in the
+  catalog but still load only when named in a configuration file or requested
+  with `.Plugin.Load("plugin-id")`.
+- **Project-local plugins** live under `Project/plugins/` (subfolders are
+  allowed). On opening a note, the desktop app scans only files named
+  `*.plugin.rix` and `*.plugin.rix.js`, reads their leading `/** YAML **/`
+  manifest, and adds them to the catalog. A project `.plugin.rix` can be
+  loaded. A project `.plugin.rix.js` is discoverable but cannot execute: adding
+  JavaScript execution requires an explicit bundled-app approval above.
+
+Enable known plugins for every notebook in a project with `project.toml`, or
+only for one notebook with its `notebook.toml`:
+
+```toml
+plugins = ["approx-math-js", "my-rix-plugin"]
+```
+
+The installed approximate-math plugin supplies `.float(x)`,
+`.float.Interval(x)`, and the other approximate operations. It is bundled with
+the app but disabled by default; put `"approx-math-js"` in either list or run
+`.Plugin.Load("approx-math-js")` in RiX.
+
 The preview renders `$inline$`, `$$display$$`, `\\(inline\\)`, and
 `\\[display\\]` mathematics with KaTeX. Relative Markdown image paths resolve
 from the active note and are served through Tauri's asset protocol, so normal

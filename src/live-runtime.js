@@ -9,9 +9,11 @@ import {
   isOutputValue,
   lower,
   parse,
+  parseAndEvaluate,
   renderOutputHtml,
 } from "../../rix/src/index.js";
 import { gridLatex } from "./output-latex.js";
+import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 
 const payloadElement = document.querySelector("#rix-live-document");
 const sourceCellElements = [...document.querySelectorAll("[data-rix-source-cell]")];
@@ -113,6 +115,7 @@ if (payloadElement || sourceCellElements.length) {
 
   function makeRuntime(sliders) {
     const registry = createDefaultRegistry();
+    const pluginCatalog = createNotebookBundledPluginCatalog();
     const runtime = {
       registry,
       context: new Context(),
@@ -122,7 +125,7 @@ if (payloadElement || sourceCellElements.length) {
       currentSliderName: null,
       currentPublication: null,
     };
-    const systemContext = createDefaultSystemContext({ frozen: false });
+    const systemContext = createDefaultSystemContext({ frozen: false, pluginCatalog });
     systemContext.registerHost("slider", {
       impl(args) {
         const config = inferSlider(args);
@@ -159,6 +162,14 @@ if (payloadElement || sourceCellElements.length) {
     systemContext.registerHost("out", outputCommand("out"));
     systemContext.registerHost("staticOut", outputCommand("staticout"));
     systemContext.registerHost("liveOut", outputCommand("liveout"));
+    runtime.loadRixPlugin = ({ source, sourcePath, context, registry: pluginRegistry, systemContext: pluginSystemContext }) => (
+      parseAndEvaluate(source, {
+        context,
+        registry: pluginRegistry,
+        systemContext: pluginSystemContext,
+        file: sourcePath,
+      })
+    );
     systemContext.freeze();
     runtime.systemContext = systemContext;
     return runtime;
@@ -171,6 +182,7 @@ if (payloadElement || sourceCellElements.length) {
     context.setEnv("__system_context__", runtime.systemContext);
     context.setEnv("__registry__", runtime.registry);
     context.setEnv("__source__", cell.code);
+    context.setEnv("__plugin_load_rix__", runtime.loadRixPlugin);
     runtime.currentCell = cell.index;
     const results = [];
     let implicitOutput = { available: false, value: null };

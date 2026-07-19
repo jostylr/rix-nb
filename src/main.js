@@ -23,12 +23,15 @@ import {
   lower,
   parse,
   posToLineCol,
+  parseAndEvaluate,
   renderGraphicSvg,
   tokenize,
   renderOutputHtml,
 } from "../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
+import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
+import { clonePluginCatalog, configuredPluginIds, createProjectPluginCatalog } from "./plugin-catalog.js";
 import { applyProjectTheme } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
 import "./styles.css";
@@ -103,6 +106,8 @@ let sidebarCollapsed = false;
 let sidebarProjectDirectory = null;
 let editorPaneRatio = null;
 let helpCatalog = null;
+let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
+let configuredPlugins = [];
 let staticPreviewObjectUrls = [];
 const sliderOverrides = new Map();
 
@@ -386,7 +391,9 @@ const rixNotebookLinter = linter((view) => {
   return diagnostics;
 }, { delay: 350 });
 
-const notebookSystemContext = createDefaultSystemContext();
+const notebookSystemContext = createDefaultSystemContext({
+  pluginCatalog: createNotebookBundledPluginCatalog(),
+});
 const systemCompletions = notebookSystemContext.getAllNames().map((name) => ({
   label: name,
   type: "function",
@@ -667,7 +674,8 @@ function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
     mode: options.mode === "static" ? "static" : "live",
     currentPublication: null,
   };
-  const systemContext = createDefaultSystemContext({ frozen: false });
+  const pluginCatalog = clonePluginCatalog(options.pluginCatalog || pluginCatalogTemplate);
+  const systemContext = createDefaultSystemContext({ frozen: false, pluginCatalog });
   systemContext.registerHost("slider", {
     impl(args) {
       return createNotebookSlider(args, runtime);
@@ -707,6 +715,22 @@ function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
   systemContext.registerHost("out", outputCommand("out"));
   systemContext.registerHost("staticOut", outputCommand("staticout"));
   systemContext.registerHost("liveOut", outputCommand("liveout"));
+  runtime.loadRixPlugin = ({ source, sourcePath, context, registry, systemContext: pluginSystemContext }) => (
+    parseAndEvaluate(source, {
+      context,
+      registry,
+      systemContext: pluginSystemContext,
+      file: sourcePath,
+    })
+  );
+  for (const id of options.plugins || configuredPlugins) {
+    pluginCatalog.load(id, {
+      context: runtime.context,
+      registry: runtime.registry,
+      systemContext,
+      loadRix: runtime.loadRixPlugin,
+    });
+  }
   systemContext.freeze();
   runtime.systemContext = systemContext;
   return runtime;
@@ -760,6 +784,7 @@ function executeCell(cell, runtime) {
   context.setEnv("__registry__", runtime.registry);
   context.setEnv("__source__", cell.code);
   context.setEnv("__current_file__", `<notebook cell at line ${cell.line}>`);
+  context.setEnv("__plugin_load_rix__", runtime.loadRixPlugin);
 
   const ast = parse(cell.code);
   const irNodes = lower(ast);
@@ -831,6 +856,7 @@ function executeInlineExpression(inline, runtime) {
   context.setEnv("__registry__", runtime.registry);
   context.setEnv("__source__", inline.expression);
   context.setEnv("__current_file__", `<inline RiX expression at line ${inline.line}>`);
+  context.setEnv("__plugin_load_rix__", runtime.loadRixPlugin);
   let value;
   const ast = parse(inline.expression);
   const irNodes = lower(ast);
@@ -1856,16 +1882,28 @@ async function saveNote() {
   } else {
     await projects.saveCurrentNote(editor.state.doc.toString());
   }
+  if (activeDocument.kind === "toml") await refreshPluginCatalog();
   dirty = false;
   updateSaveButton();
   setStatus(activeDocument.kind === "note" ? "Saved" : "Saved configuration");
   refreshProjectControls();
 }
 
+async function refreshPluginCatalog() {
+  if (!projects.isOpen) {
+    pluginCatalogTemplate = createNotebookBundledPluginCatalog();
+    configuredPlugins = [];
+    return;
+  }
+  pluginCatalogTemplate = await createProjectPluginCatalog(projects.project.directory);
+  configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook);
+}
+
 async function loadNote(note) {
   activeDocument = { kind: "note", path: note.path };
   applyProjectTheme(projects.project.theme);
   editorKind.textContent = "Markdown";
+  await refreshPluginCatalog();
   setDocument(note.source);
   refreshProjectControls();
   setStatus(`Opened ${note.path.split("/").at(-1)}`);

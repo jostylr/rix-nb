@@ -23,12 +23,12 @@ function tomlString(value) {
   return JSON.stringify(value);
 }
 
-function projectToml(title, notebooks, quickExportScope = "notebook") {
-  return `format_version = 1\ntitle = ${tomlString(title)}\nquick_export_scope = ${tomlString(quickExportScope)}\nnotebooks = [${notebooks.map(tomlString).join(", ")}]\n`;
+function projectToml(title, notebooks, quickExportScope = "notebook", plugins = []) {
+  return `format_version = 1\ntitle = ${tomlString(title)}\nquick_export_scope = ${tomlString(quickExportScope)}\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotebooks = [${notebooks.map(tomlString).join(", ")}]\n`;
 }
 
-function notebookToml(title, notes) {
-  return `format_version = 1\ntitle = ${tomlString(title)}\nnotes = [${notes.map(tomlString).join(", ")}]\n`;
+function notebookToml(title, notes, plugins = []) {
+  return `format_version = 1\ntitle = ${tomlString(title)}\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotes = [${notes.map(tomlString).join(", ")}]\n`;
 }
 
 function readTomlString(source, key) {
@@ -108,13 +108,22 @@ function parseProject(source) {
   if (!["notebook", "project"].includes(quickExportScope)) {
     throw new Error("quick_export_scope must be notebook or project");
   }
-  return { title: readTomlString(source, "title") || "Untitled Project", notebooks, quickExportScope };
+  return {
+    title: readTomlString(source, "title") || "Untitled Project",
+    notebooks,
+    quickExportScope,
+    plugins: readTomlStringArray(source, "plugins") || [],
+  };
 }
 
 function parseNotebook(source) {
   const notes = readTomlStringArray(source, "notes");
   if (!notes) throw new Error("notebook.toml must contain a notes array");
-  return { title: readTomlString(source, "title") || "Untitled Notebook", notes };
+  return {
+    title: readTomlString(source, "title") || "Untitled Notebook",
+    notes,
+    plugins: readTomlStringArray(source, "plugins") || [],
+  };
 }
 
 export class ProjectManager {
@@ -263,8 +272,8 @@ export class ProjectManager {
     await writeTextFile(path, notebookToml(title, ["index.md"]));
     await writeTextFile(joinPath(dirname(path), "index.md"), `# ${title}\n`);
     this.project.notebooks.push(relativePath);
-    await writeTextFile(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope));
-    this.notebooks.set(path, { path, relativePath, title, notes: ["index.md"] });
+    await writeTextFile(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins));
+    this.notebooks.set(path, { path, relativePath, title, notes: ["index.md"], plugins: [] });
     return this.selectNotebook(path);
   }
 
@@ -276,7 +285,7 @@ export class ProjectManager {
     if (await exists(path)) throw new Error(`A note already exists at ${path}`);
     await writeTextFile(path, `# ${title}\n`);
     notebook.notes.push(filename);
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
+    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     return this.selectNote(path);
   }
 
@@ -289,7 +298,7 @@ export class ProjectManager {
     if (newPath !== path && await exists(newPath)) throw new Error(`A note already exists at ${newPath}`);
     if (newPath !== path) await rename(path, newPath);
     notebook.notes = notebook.notes.map((note) => note === oldName ? newName : note);
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
+    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     if (this.currentNotePath === path) this.currentNotePath = newPath;
     return this.selectNote(newPath);
   }
@@ -298,7 +307,7 @@ export class ProjectManager {
     const notebook = this.notebooks.get(path);
     if (!notebook) throw new Error("Notebook does not belong to this project");
     notebook.title = title;
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes));
+    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     return this.selectNotebook(path);
   }
 
@@ -308,7 +317,7 @@ export class ProjectManager {
     this.project.quickExportScope = scope;
     await writeTextFile(
       this.project.path,
-      projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope),
+      projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins),
     );
   }
 
@@ -324,7 +333,7 @@ export class ProjectManager {
     const filename = path.split("/").at(-1);
     const remainingNotes = notebook.notes.filter((note) => note !== filename);
     notebook.notes = remainingNotes;
-    await writeTextFile(notebook.path, notebookToml(notebook.title, remainingNotes));
+    await writeTextFile(notebook.path, notebookToml(notebook.title, remainingNotes, notebook.plugins));
     if (this.currentNotePath === path) {
       return this.selectNote(joinPath(dirname(notebook.path), remainingNotes[0]));
     }
