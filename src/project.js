@@ -24,7 +24,7 @@ function tomlString(value) {
   return JSON.stringify(value);
 }
 
-function projectToml(title, notebooks, quickExportScope = "notebook", plugins = []) {
+function projectToml(title, notebooks, quickExportScope = "project", plugins = []) {
   return `format_version = 1\ntitle = ${tomlString(title)}\nquick_export_scope = ${tomlString(quickExportScope)}\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotebooks = [${notebooks.map(tomlString).join(", ")}]\n`;
 }
 
@@ -105,7 +105,7 @@ const STARTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 25
 function parseProject(source) {
   const notebooks = readTomlStringArray(source, "notebooks");
   if (!notebooks) throw new Error("project.toml must contain a notebooks array");
-  const quickExportScope = readTomlString(source, "quick_export_scope") || "notebook";
+  const quickExportScope = readTomlString(source, "quick_export_scope") || "project";
   if (!["notebook", "project"].includes(quickExportScope)) {
     throw new Error("quick_export_scope must be notebook or project");
   }

@@ -11,7 +11,7 @@ import "katex/dist/katex.min.css";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { copyFile, mkdir, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { copyFile, exists, mkdir, readDir, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { Integer, Rational, RationalInterval } from "@ratmath/core";
 import {
   Context,
@@ -64,6 +64,7 @@ const openRecentMenu = document.querySelector("#open-recent-menu");
 const toggleSidebarButton = document.querySelector("#toggle-sidebar");
 const saveNoteButton = document.querySelector("#save-note");
 const newNotebookButton = document.querySelector("#new-notebook");
+const newFolderButton = document.querySelector("#new-folder");
 const newNoteButton = document.querySelector("#new-note");
 const projectSidebar = document.querySelector("#project-sidebar");
 const projectTree = document.querySelector("#project-tree");
@@ -111,6 +112,7 @@ let sidebarCollapsed = false;
 let sidebarProjectDirectory = null;
 let editorPaneRatio = null;
 let paneLayout = "both";
+let folderWorkspace = null;
 let helpCatalog = null;
 let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
 let configuredPlugins = [];
@@ -174,7 +176,7 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
 };
 
 function resolveProjectAsset(source) {
-  const notePath = activeDocument.kind === "file" ? activeDocument.path : projects.currentNotePath;
+  const notePath = ["file", "folder-file"].includes(activeDocument.kind) ? activeDocument.path : projects.currentNotePath;
   if (!notePath || /^(?:[a-z]+:|\/)/i.test(source)) return source;
   const pieces = [...notePath.split("/").slice(0, -1), ...source.split("/")];
   const resolved = [];
@@ -189,7 +191,7 @@ function resolveProjectAsset(source) {
 markdownRenderer.renderer.rules.image = (tokens, index, options, env, self) => {
   const token = tokens[index];
   const source = token.attrGet("src");
-  const notePath = activeDocument.kind === "file" ? activeDocument.path : projects.currentNotePath;
+  const notePath = ["file", "folder-file"].includes(activeDocument.kind) ? activeDocument.path : projects.currentNotePath;
   if (!source || !notePath || /^(?:[a-z]+:|\/)/i.test(source)) {
     return defaultImageRenderer(tokens, index, options, env, self);
   }
@@ -1279,7 +1281,7 @@ function setDocument(source) {
 }
 
 function updateSaveButton() {
-  saveNoteButton.disabled = !(projects.isOpen || activeDocument.kind === "file") || !dirty;
+  saveNoteButton.disabled = !(projects.isOpen || ["file", "folder-file"].includes(activeDocument.kind)) || !dirty;
 }
 
 function updateSidebarToggle(open) {
@@ -1464,6 +1466,9 @@ function enableTreeRename(button, initialValue, renameAction) {
 function showFileContextMenu(event, context) {
   event.preventDefault();
   fileContext = context;
+  fileContextMenu.querySelector('[data-file-action="rename"]').hidden = Boolean(context.folder);
+  fileContextMenu.querySelector('[data-file-action="delete"]').hidden = Boolean(context.folder);
+  fileContextMenu.querySelector("hr").hidden = Boolean(context.folder);
   fileContextMenu.hidden = false;
   const width = fileContextMenu.offsetWidth;
   const height = fileContextMenu.offsetHeight;
@@ -1487,7 +1492,12 @@ function requestConfirmation({ title, message, confirmLabel = "Delete" }) {
 }
 
 async function saveAndCommitCurrentNote() {
-  if (!projects.isOpen || !projects.currentNotePath) throw new Error("Open a project note before committing");
+  if (folderWorkspace && activeDocument.kind === "folder-file") {
+    await saveNote();
+    await commitFolderFile(activeDocument.path, activeDocument.path.split("/").at(-1));
+    return;
+  }
+  if (!projects.isOpen || !projects.currentNotePath) throw new Error("Open a project or folder note before committing");
   await saveNote();
   await commitProjectNote(projects.currentNotePath, projects.currentNotePath.split("/").at(-1));
 }
@@ -1788,7 +1798,11 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
 
 function openExportDialog() {
   if (!projects.isOpen) {
-    runProjectAction(async () => { throw new Error("Open a project before exporting"); });
+    if (["file", "folder-file"].includes(activeDocument.kind)) {
+      runProjectAction(exportOpenDocument);
+      return;
+    }
+    runProjectAction(async () => { throw new Error("Open a Markdown note or project before exporting"); });
     return;
   }
   exportNotebookSelect.replaceChildren();
@@ -1810,7 +1824,11 @@ function openExportDialog() {
 
 function quickExport() {
   if (!projects.isOpen) {
-    runProjectAction(async () => { throw new Error("Open a project before exporting"); });
+    if (["file", "folder-file"].includes(activeDocument.kind)) {
+      runProjectAction(exportOpenDocument);
+      return;
+    }
+    runProjectAction(async () => { throw new Error("Open a Markdown note or project before exporting"); });
     return;
   }
   runProjectAction(() => exportScope({
@@ -1821,6 +1839,43 @@ function quickExport() {
     includeQuarto: true,
     quick: true,
   }));
+}
+
+async function exportOpenDocument() {
+  const notePath = activeDocument.path;
+  if (!notePath) throw new Error("Open a Markdown note before exporting");
+  const destination = await openDialog({ title: "Choose a folder for the note export", directory: true, multiple: false, recursive: true });
+  if (!destination || Array.isArray(destination)) return;
+  const name = notePath.split("/").at(-1).replace(/\.(?:md|markdown|mdown|mkdn)$/i, "") || "note";
+  const exportRoot = pathJoin(destination, `${pathSlug(name)}-export`);
+  const outputRoots = {
+    markdown: pathJoin(exportRoot, "markdown"),
+    html: pathJoin(exportRoot, "html"),
+    quarto: pathJoin(exportRoot, "quarto"),
+  };
+  for (const root of Object.values(outputRoots)) await mkdir(root, { recursive: true });
+  await copyKatexAssets(outputRoots.html);
+  await copyKatexAssets(outputRoots.quarto);
+  const source = editor.state.doc.toString();
+  const documentRun = executeDocument(source, { mode: "static", sliderOverrides: new Map() });
+  const staticSources = new Map();
+  for (const [target, root] of Object.entries(outputRoots)) {
+    const graphicReferences = await materializeStaticGraphics(documentRun, `${name}.md`, root);
+    staticSources.set(target, renderStaticDocument(documentRun.document, documentRun.runs, documentRun.inlineRuns, {
+      graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
+    }));
+  }
+  await writeTextFile(pathJoin(outputRoots.markdown, `${name}.md`), staticSources.get("markdown"));
+  await writeTextFile(
+    pathJoin(outputRoots.html, `${name}.html`),
+    staticHtmlDocument(name, staticSources.get("html"), katexStylesheetForPage(`${name}.html`)),
+  );
+  await writeTextFile(pathJoin(outputRoots.quarto, `${name}.qmd`), staticSources.get("quarto"));
+  await writeTextFile(pathJoin(outputRoots.quarto, "_quarto.yml"), quartoProjectYaml(name, [{ path: `${name}.qmd`, title: name }]));
+  setStatus("Exported current note");
+  messageDialogTitle.textContent = "Export complete";
+  messageDialogBody.textContent = `Wrote the current note to ${exportRoot}.`;
+  messageDialog.showModal();
 }
 
 async function renameProjectNote(path, currentTitle) {
@@ -1845,20 +1900,63 @@ async function commitProjectNote(path, title) {
   messageDialog.showModal();
 }
 
+async function commitFolderFile(path, title) {
+  if (!folderWorkspace) throw new Error("Open a folder file before committing");
+  if (dirty && activeDocument.path === path) await saveNote();
+  const message = await requestName({ title: "Commit file", label: `Commit message for ${title}`, value: `Update ${title.replace(/\.[^.]+$/, "")}` });
+  if (!message) return;
+  const result = await invoke("git_commit_note", {
+    projectRoot: folderWorkspace.directory,
+    notePath: path,
+    message,
+  });
+  setStatus("Committed file");
+  messageDialogTitle.textContent = "Git commit created";
+  messageDialogBody.textContent = result;
+  messageDialog.showModal();
+}
+
 function refreshProjectControls() {
   const open = projects.isOpen;
-  if (open && projects.project.directory !== sidebarProjectDirectory) {
-    sidebarProjectDirectory = projects.project.directory;
+  const folderOpen = folderWorkspace !== null;
+  const workspaceDirectory = open ? projects.project.directory : folderWorkspace?.directory || null;
+  if (workspaceDirectory && workspaceDirectory !== sidebarProjectDirectory) {
+    sidebarProjectDirectory = workspaceDirectory;
     sidebarCollapsed = false;
   }
-  if (!open) sidebarProjectDirectory = null;
+  if (!workspaceDirectory) sidebarProjectDirectory = null;
   updateSaveButton();
   newNotebookButton.disabled = !open;
-  newNoteButton.disabled = !open;
-  projectSidebar.hidden = !open || sidebarCollapsed;
-  workspace.classList.toggle("has-project", open && !sidebarCollapsed);
-  updateSidebarToggle(open);
+  newFolderButton.hidden = !folderOpen;
+  newFolderButton.disabled = !folderOpen;
+  newNoteButton.disabled = !(open || folderOpen);
+  newNoteButton.title = folderOpen ? "New Markdown file (⌘N)" : "New note (⌘N)";
+  newNoteButton.setAttribute("aria-label", folderOpen ? "New Markdown file" : "New note");
+  projectSidebar.hidden = !(open || folderOpen) || sidebarCollapsed;
+  workspace.classList.toggle("has-project", (open || folderOpen) && !sidebarCollapsed);
+  updateSidebarToggle(open || folderOpen);
   window.requestAnimationFrame(preserveEditorPaneRatio);
+  if (folderOpen) {
+    projectTree.replaceChildren();
+    for (const file of folderWorkspace.files) {
+      const fileButton = document.createElement("button");
+      fileButton.type = "button";
+      fileButton.className = file.path.toLowerCase().endsWith(".toml") ? "tree-manifest" : "tree-note";
+      fileButton.textContent = file.relativePath;
+      fileButton.setAttribute("aria-current", String(activeDocument.kind === "folder-file" && activeDocument.path === file.path));
+      addDelayedTreeSelection(fileButton, () => loadFolderFile(file.path));
+      fileButton.addEventListener("contextmenu", (event) => showFileContextMenu(event, { path: file.path, title: file.relativePath, folder: true }));
+      projectTree.append(fileButton);
+    }
+    if (!folderWorkspace.files.length) {
+      const empty = document.createElement("p");
+      empty.className = "output-placeholder";
+      empty.textContent = "No Markdown or TOML files";
+      projectTree.append(empty);
+    }
+    workspaceTitle.textContent = folderWorkspace.directory.split("/").at(-1) || "Folder";
+    return;
+  }
   if (!open) {
     projectTree.replaceChildren();
     workspaceTitle.textContent = activeDocument.kind === "file"
@@ -1947,8 +2045,8 @@ function refreshProjectControls() {
 }
 
 async function saveNote() {
-  if (!projects.isOpen && activeDocument.kind !== "file") return;
-  if (activeDocument.kind === "file") {
+  if (!projects.isOpen && !["file", "folder-file"].includes(activeDocument.kind)) return;
+  if (["file", "folder-file"].includes(activeDocument.kind)) {
     await writeTextFile(activeDocument.path, editor.state.doc.toString());
   } else if (activeDocument.kind === "theme") {
     await projects.saveTheme(editor.state.doc.toString());
@@ -1961,7 +2059,7 @@ async function saveNote() {
   if (activeDocument.kind === "toml") await refreshPluginCatalog();
   dirty = false;
   updateSaveButton();
-  setStatus(activeDocument.kind === "note" || activeDocument.kind === "file" ? "Saved" : "Saved configuration");
+  setStatus(["note", "file", "folder-file"].includes(activeDocument.kind) ? "Saved" : "Saved configuration");
   refreshProjectControls();
 }
 
@@ -1982,6 +2080,7 @@ function pathDirectoryForFile(path) {
 async function loadStandaloneMarkdown(path) {
   if (dirty) await saveNote();
   projects.close();
+  folderWorkspace = null;
   recentProjectKey = null;
   activeDocument = { kind: "file", path };
   applyProjectTheme(DEFAULT_PROJECT_THEME);
@@ -2015,8 +2114,98 @@ async function openMarkdownFile() {
 
 async function openProjectFolder() {
   if (dirty) await saveNote();
-  const note = await projects.chooseAndOpenProject();
-  if (note) await loadNote(note);
+  const directory = await openDialog({ title: "Open project or Markdown folder", directory: true, multiple: false, recursive: true });
+  if (!directory || Array.isArray(directory)) return;
+  await invoke("grant_project_access", { path: directory });
+  if (await exists(pathJoin(directory, "project.toml"))) {
+    const note = await projects.openProject(directory);
+    if (note) await loadNote(note);
+    return;
+  }
+  await loadFolderWorkspace(directory);
+}
+
+function isFolderDocument(path) {
+  return /\.(?:md|markdown|mdown|mkdn|toml)$/i.test(path);
+}
+
+async function listFolderDocuments(directory, prefix = "") {
+  const entries = await readDir(directory);
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    const path = pathJoin(directory, entry.name);
+    const relativePath = pathJoin(prefix, entry.name);
+    if (entry.isDirectory) files.push(...await listFolderDocuments(path, relativePath));
+    else if (entry.isFile && isFolderDocument(entry.name)) files.push({ path, relativePath });
+  }
+  return files;
+}
+
+async function loadFolderWorkspace(directory) {
+  projects.close();
+  recentProjectKey = null;
+  folderWorkspace = { directory, files: (await listFolderDocuments(directory)).sort((left, right) => left.relativePath.localeCompare(right.relativePath)) };
+  applyProjectTheme(DEFAULT_PROJECT_THEME);
+  await refreshPluginCatalog();
+  const initialFile = folderWorkspace.files.find((file) => /\.md(?:own|arkdown)?$/i.test(file.path)) || folderWorkspace.files[0];
+  if (initialFile) {
+    await loadFolderFile(initialFile.path);
+    return;
+  }
+  activeDocument = { kind: "folder", path: null };
+  editorKind.textContent = "Markdown";
+  setDocument("# Empty folder\n\nNo Markdown or TOML files were found in this folder.\n");
+  refreshProjectControls();
+  setStatus("Opened folder");
+}
+
+async function refreshFolderWorkspace() {
+  if (!folderWorkspace) return;
+  folderWorkspace.files = (await listFolderDocuments(folderWorkspace.directory))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  refreshProjectControls();
+}
+
+function folderCreationDirectory() {
+  if (activeDocument.kind === "folder-file" && activeDocument.path.startsWith(`${folderWorkspace.directory}/`)) {
+    return pathDirectoryForFile(activeDocument.path);
+  }
+  return folderWorkspace.directory;
+}
+
+async function createFolderMarkdownFile() {
+  if (!folderWorkspace) throw new Error("Open a folder before creating a Markdown file");
+  const title = await requestName({ title: "New Markdown file", label: "File name", value: "Untitled note" });
+  if (!title) return;
+  const filename = /\.(?:md|markdown|mdown|mkdn)$/i.test(title) ? title : `${title}.md`;
+  const path = pathJoin(folderCreationDirectory(), filename);
+  if (await exists(path)) throw new Error(`A file already exists at ${path}`);
+  await writeTextFile(path, `# ${filename.replace(/\.[^.]+$/, "")}\n`);
+  await refreshFolderWorkspace();
+  await loadFolderFile(path);
+}
+
+async function createFolderDirectory() {
+  if (!folderWorkspace) throw new Error("Open a folder before creating a subfolder");
+  const title = await requestName({ title: "New folder", label: "Folder name", value: "Folder" });
+  if (!title) return;
+  if (/[\\/]/.test(title)) throw new Error("Folder names cannot contain a slash");
+  const path = pathJoin(folderCreationDirectory(), title);
+  if (await exists(path)) throw new Error(`A folder or file already exists at ${path}`);
+  await mkdir(path, { recursive: true });
+  await refreshFolderWorkspace();
+  setStatus(`Created ${title}`);
+}
+
+async function loadFolderFile(path) {
+  if (!folderWorkspace?.files.some((file) => file.path === path)) throw new Error("The selected file is outside the open folder");
+  if (dirty) await saveNote();
+  activeDocument = { kind: "folder-file", path };
+  editorKind.textContent = path.toLowerCase().endsWith(".toml") ? "TOML" : "Markdown";
+  setDocument(await readTextFile(path));
+  refreshProjectControls();
+  setStatus(`Opened ${path.split("/").at(-1)}`);
 }
 
 function closeOpenRecentMenu() {
@@ -2076,6 +2265,7 @@ async function showOpenRecentMenu() {
 }
 
 async function loadNote(note) {
+  folderWorkspace = null;
   activeDocument = { kind: "note", path: note.path };
   applyProjectTheme(projects.project.theme);
   editorKind.textContent = "Markdown";
@@ -2195,7 +2385,7 @@ helpTopic.addEventListener("change", () => {
   });
 });
 toggleSidebarButton.addEventListener("click", () => {
-  if (!projects.isOpen) return;
+  if (!projects.isOpen && !folderWorkspace) return;
   sidebarCollapsed = !sidebarCollapsed;
   refreshProjectControls();
 });
@@ -2222,7 +2412,12 @@ newNotebookButton.addEventListener("click", () => runProjectAction(async () => {
   const note = await projects.createNotebook(title);
   await loadNote(note);
 }));
+newFolderButton.addEventListener("click", () => runProjectAction(createFolderDirectory));
 newNoteButton.addEventListener("click", () => runProjectAction(async () => {
+  if (folderWorkspace) {
+    await createFolderMarkdownFile();
+    return;
+  }
   const title = await requestName({ title: "New note", label: "Note title", value: "Untitled note" });
   if (!title) return;
   const note = await projects.createNote(title);
@@ -2252,6 +2447,11 @@ fileContextMenu.addEventListener("click", (event) => {
   hideFileContextMenu();
   if (!action || !context) return;
   runProjectAction(async () => {
+    if (context.folder && action === "commit") {
+      await commitFolderFile(context.path, context.title);
+      return;
+    }
+    if (context.folder) throw new Error("Rename and Trash are currently available for project notes only");
     if (action === "rename") await renameProjectNote(context.path, context.title);
     if (action === "commit") await commitProjectNote(context.path, context.title);
     if (action === "delete") {
