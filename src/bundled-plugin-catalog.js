@@ -6,7 +6,7 @@
  * plugin-catalog.js and do not receive this approval merely by being found.
  */
 import { PluginCatalog } from "../../rix/src/index.js";
-import { installBrowserApproxMathPlugin } from "../../rix/src/plugins/approx-math-browser.js";
+import { installBrowserApproxMathPlugin } from "../../rix/examples/approx-math/approx-math-browser-plugin.js";
 
 const approxMathMetadata = {
   id: "approx-math-js",
