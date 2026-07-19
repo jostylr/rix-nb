@@ -3,17 +3,32 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent};
 use tauri_plugin_fs::FsExt;
 
 const RECENT_PROJECT_LIMIT: usize = 12;
 
 #[derive(Clone, Deserialize, Serialize)]
 struct RecentProject {
+    #[serde(default = "default_recent_kind")]
+    kind: String,
     #[serde(default)]
     last_note_path: Option<String>,
     path: String,
     title: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct WindowGeometry {
+    height: u32,
+    maximized: bool,
+    width: u32,
+    x: i32,
+    y: i32,
+}
+
+fn default_recent_kind() -> String {
+    "project".to_string()
 }
 
 fn recent_projects_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -23,6 +38,43 @@ fn recent_projects_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, Strin
         .map_err(|error| format!("Could not locate application data: {error}"))?;
     fs::create_dir_all(&directory).map_err(|error| format!("Could not create application data folder: {error}"))?;
     Ok(directory.join("recent-projects.json"))
+}
+
+fn window_geometry_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not locate application data: {error}"))?;
+    fs::create_dir_all(&directory).map_err(|error| format!("Could not create application data folder: {error}"))?;
+    Ok(directory.join("window-geometry.json"))
+}
+
+fn restore_window_geometry<R: Runtime>(app: &AppHandle<R>) {
+    let Ok(path) = window_geometry_path(app) else { return; };
+    let Ok(source) = fs::read_to_string(path) else { return; };
+    let Ok(geometry) = serde_json::from_str::<WindowGeometry>(&source) else { return; };
+    let Some(window) = app.get_webview_window("main") else { return; };
+    let _ = window.set_size(PhysicalSize::new(geometry.width.max(640), geometry.height.max(480)));
+    let _ = window.set_position(PhysicalPosition::new(geometry.x, geometry.y));
+    if geometry.maximized {
+        let _ = window.maximize();
+    }
+}
+
+fn save_window_geometry<R: Runtime>(window: &tauri::Window<R>) {
+    let Ok(position) = window.outer_position() else { return; };
+    let Ok(size) = window.outer_size() else { return; };
+    let Ok(maximized) = window.is_maximized() else { return; };
+    let geometry = WindowGeometry {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized,
+    };
+    let Ok(path) = window_geometry_path(&window.app_handle()) else { return; };
+    let Ok(source) = serde_json::to_string(&geometry) else { return; };
+    let _ = fs::write(path, source);
 }
 
 fn load_recent_projects<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<RecentProject>, String> {
@@ -55,6 +107,32 @@ fn allow_project_access<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<()
     Ok(())
 }
 
+#[tauri::command]
+fn grant_project_access(app: AppHandle, path: String) -> Result<(), String> {
+    allow_project_access(&app, &path)
+}
+
+fn allow_file_access<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<(), String> {
+    let file = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("Could not access recent file: {error}"))?;
+    if !file.is_file() {
+        return Err("The recent file no longer exists".to_string());
+    }
+    let directory = file.parent().ok_or_else(|| "Could not locate the file folder".to_string())?;
+    app.fs_scope()
+        .allow_directory(directory, true)
+        .map_err(|error| format!("Could not grant file access: {error}"))?;
+    app.asset_protocol_scope()
+        .allow_directory(directory, true)
+        .map_err(|error| format!("Could not grant file asset access: {error}"))?;
+    Ok(())
+}
+
+fn allow_recent_access<R: Runtime>(app: &AppHandle<R>, recent: &RecentProject) -> Result<(), String> {
+    if recent.kind == "file" { allow_file_access(app, &recent.path) } else { allow_project_access(app, &recent.path) }
+}
+
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let recents = load_recent_projects(app).unwrap_or_default();
     let mut recent_menu = SubmenuBuilder::new(app, "Open Recent");
@@ -74,7 +152,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let file = SubmenuBuilder::new(app, "File")
         .item(&MenuItemBuilder::with_id("new-note", "New Note…").accelerator("CmdOrCtrl+N").build(app)?)
         .item(&MenuItemBuilder::with_id("new-project", "New Project…").accelerator("CmdOrCtrl+Shift+A").build(app)?)
-        .item(&MenuItemBuilder::with_id("open-project", "Open Project…").accelerator("CmdOrCtrl+O").build(app)?)
+        .item(&MenuItemBuilder::with_id("open-project", "Open…").accelerator("CmdOrCtrl+O").build(app)?)
         .item(&recent_menu)
         .separator()
         .item(&MenuItemBuilder::with_id("save-note", "Save").accelerator("CmdOrCtrl+S").build(app)?)
@@ -113,12 +191,30 @@ fn record_recent_project(
     allow_project_access(&app, &path)?;
     let mut recents = load_recent_projects(&app)?;
     recents.retain(|recent| recent.path != path);
-    recents.insert(0, RecentProject { path, title, last_note_path });
+    recents.insert(0, RecentProject { kind: "project".to_string(), path, title, last_note_path });
     recents.truncate(RECENT_PROJECT_LIMIT);
     save_recent_projects(&app, &recents)?;
     app.set_menu(build_menu(&app).map_err(|error| error.to_string())?)
         .map_err(|error| format!("Could not update Open Recent: {error}"))?;
     Ok(())
+}
+
+#[tauri::command]
+fn record_recent_file(app: AppHandle, path: String, title: String) -> Result<(), String> {
+    allow_file_access(&app, &path)?;
+    let mut recents = load_recent_projects(&app)?;
+    recents.retain(|recent| recent.path != path);
+    recents.insert(0, RecentProject { kind: "file".to_string(), path, title, last_note_path: None });
+    recents.truncate(RECENT_PROJECT_LIMIT);
+    save_recent_projects(&app, &recents)?;
+    app.set_menu(build_menu(&app).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("Could not update Open Recent: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_recent_documents(app: AppHandle) -> Result<Vec<RecentProject>, String> {
+    load_recent_projects(&app)
 }
 
 fn command_output(command: &mut Command) -> Result<String, String> {
@@ -179,14 +275,23 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                save_window_geometry(window);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             git_commit_note,
             move_note_to_trash,
-            record_recent_project
+            record_recent_project,
+            record_recent_file,
+            get_recent_documents,
+            grant_project_access
         ])
         .setup(|app| {
             let handle = app.handle();
             app.set_menu(build_menu(handle)?)?;
+            restore_window_geometry(handle);
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
                 if id == "clear-recent-projects" {
@@ -198,8 +303,8 @@ pub fn run() {
                 }
                 if let Some(index) = id.strip_prefix("open-recent:").and_then(|index| index.parse::<usize>().ok()) {
                     if let Some(recent) = load_recent_projects(app).ok().and_then(|projects| projects.get(index).cloned()) {
-                        if allow_project_access(app, &recent.path).is_ok() {
-                            let _ = app.emit("open-recent-project", recent);
+                        if allow_recent_access(app, &recent).is_ok() {
+                            let _ = app.emit("open-recent-document", recent);
                         }
                     }
                     return;

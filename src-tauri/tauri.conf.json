@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "RiX Notebook",
-        "width": 1080,
-        "height": 720,
+        "width": 1280,
+        "height": 840,
         "minWidth": 640,
         "minHeight": 480
       }

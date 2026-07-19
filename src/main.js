@@ -32,7 +32,7 @@ import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/ind
 import { ProjectManager } from "./project.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 import { clonePluginCatalog, configuredPluginIds, createProjectPluginCatalog } from "./plugin-catalog.js";
-import { applyProjectTheme } from "./theme.js";
+import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
 import "./styles.css";
 
@@ -44,6 +44,9 @@ const output = document.querySelector("#rix-output");
 const outputPane = document.querySelector("#output-pane");
 const mainResizer = document.querySelector("#main-resizer");
 const editorPane = document.querySelector(".editor-pane");
+const collapseDocumentPaneButton = document.querySelector("#collapse-document-pane");
+const collapseEditorPaneButton = document.querySelector("#collapse-editor-pane");
+const centerPanesButton = document.querySelector("#center-panes");
 const sliderControls = document.querySelector("#slider-controls");
 const sliderControlList = document.querySelector("#slider-control-list");
 const previewPane = document.querySelector("#preview-pane");
@@ -56,6 +59,8 @@ const workspace = document.querySelector(".workspace");
 const editorKind = document.querySelector("#editor-kind");
 const newProjectButton = document.querySelector("#new-project");
 const openProjectButton = document.querySelector("#open-project");
+const openRecentButton = document.querySelector("#open-recent");
+const openRecentMenu = document.querySelector("#open-recent-menu");
 const toggleSidebarButton = document.querySelector("#toggle-sidebar");
 const saveNoteButton = document.querySelector("#save-note");
 const newNotebookButton = document.querySelector("#new-notebook");
@@ -105,6 +110,7 @@ let renderedSliderSignature = "";
 let sidebarCollapsed = false;
 let sidebarProjectDirectory = null;
 let editorPaneRatio = null;
+let paneLayout = "both";
 let helpCatalog = null;
 let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
 let configuredPlugins = [];
@@ -168,8 +174,9 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
 };
 
 function resolveProjectAsset(source) {
-  if (!projects.currentNotePath || /^(?:[a-z]+:|\/)/i.test(source)) return source;
-  const pieces = [...projects.currentNotePath.split("/").slice(0, -1), ...source.split("/")];
+  const notePath = activeDocument.kind === "file" ? activeDocument.path : projects.currentNotePath;
+  if (!notePath || /^(?:[a-z]+:|\/)/i.test(source)) return source;
+  const pieces = [...notePath.split("/").slice(0, -1), ...source.split("/")];
   const resolved = [];
   for (const piece of pieces) {
     if (!piece || piece === ".") continue;
@@ -182,7 +189,8 @@ function resolveProjectAsset(source) {
 markdownRenderer.renderer.rules.image = (tokens, index, options, env, self) => {
   const token = tokens[index];
   const source = token.attrGet("src");
-  if (!source || !projects.currentNotePath || /^(?:[a-z]+:|\/)/i.test(source)) {
+  const notePath = activeDocument.kind === "file" ? activeDocument.path : projects.currentNotePath;
+  if (!source || !notePath || /^(?:[a-z]+:|\/)/i.test(source)) {
     return defaultImageRenderer(tokens, index, options, env, self);
   }
   token.attrSet("src", convertFileSrc(resolveProjectAsset(source)));
@@ -1271,7 +1279,7 @@ function setDocument(source) {
 }
 
 function updateSaveButton() {
-  saveNoteButton.disabled = !projects.isOpen || !dirty;
+  saveNoteButton.disabled = !(projects.isOpen || activeDocument.kind === "file") || !dirty;
 }
 
 function updateSidebarToggle(open) {
@@ -1288,7 +1296,35 @@ function editorSplitMetrics() {
   return { availableWidth, sidebarWidth };
 }
 
+function setPaneLayout(layout) {
+  paneLayout = layout;
+  workspace.classList.toggle("editor-collapsed", layout === "editor");
+  workspace.classList.toggle("document-collapsed", layout === "document");
+  collapseEditorPaneButton.disabled = layout === "editor";
+  collapseDocumentPaneButton.disabled = layout === "document";
+  centerPanesButton.title = layout === "both"
+    ? "Center panes; drag to resize (⌘⌥\\)"
+    : "Restore both panes at an even split (⌘⌥\\)";
+  centerPanesButton.setAttribute("aria-label", centerPanesButton.title);
+  if (layout === "both") window.requestAnimationFrame(preserveEditorPaneRatio);
+}
+
+function centerPanes() {
+  setPaneLayout("both");
+  const { availableWidth } = editorSplitMetrics();
+  if (availableWidth > 0) setEditorPaneWidth(availableWidth / 2);
+}
+
+function collapseDocumentPane() {
+  setPaneLayout("document");
+}
+
+function collapseEditorPane() {
+  setPaneLayout("editor");
+}
+
 function setEditorPaneWidth(width, rememberRatio = true) {
+  if (paneLayout !== "both") setPaneLayout("both");
   const { availableWidth } = editorSplitMetrics();
   const minimumEditorWidth = 330;
   const minimumDocumentWidth = 380;
@@ -1299,7 +1335,7 @@ function setEditorPaneWidth(width, rememberRatio = true) {
 }
 
 function preserveEditorPaneRatio() {
-  if (window.matchMedia("(max-width: 900px)").matches) return;
+  if (paneLayout !== "both" || window.matchMedia("(max-width: 900px)").matches) return;
   const { availableWidth } = editorSplitMetrics();
   if (availableWidth <= 0) return;
   if (editorPaneRatio === null) editorPaneRatio = editorPane.getBoundingClientRect().width / availableWidth;
@@ -1309,6 +1345,7 @@ function preserveEditorPaneRatio() {
 function installMainResizer() {
   let pointerId = null;
   mainResizer.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".divider-control")) return;
     if (window.matchMedia("(max-width: 900px)").matches) return;
     pointerId = event.pointerId;
     mainResizer.setPointerCapture(pointerId);
@@ -1332,6 +1369,40 @@ function installMainResizer() {
     event.preventDefault();
     const editorWidth = editorPane.getBoundingClientRect().width;
     setEditorPaneWidth(editorWidth + (event.key === "ArrowLeft" ? -20 : 20));
+  });
+
+  let controlPointerId = null;
+  let controlStartX = 0;
+  let controlMoved = false;
+  centerPanesButton.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    event.preventDefault();
+    event.stopPropagation();
+    controlPointerId = event.pointerId;
+    controlStartX = event.clientX;
+    controlMoved = false;
+    centerPanesButton.setPointerCapture(controlPointerId);
+    setPaneLayout("both");
+    document.body.classList.add("is-resizing");
+  });
+  centerPanesButton.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== controlPointerId) return;
+    if (Math.abs(event.clientX - controlStartX) > 3) controlMoved = true;
+    if (!controlMoved) return;
+    setEditorPaneWidth(event.clientX - workspace.getBoundingClientRect().left - (projectSidebar.hidden ? 0 : projectSidebar.getBoundingClientRect().width));
+  });
+  const stopControlResize = (event) => {
+    if (event.pointerId !== controlPointerId) return;
+    if (centerPanesButton.hasPointerCapture(controlPointerId)) centerPanesButton.releasePointerCapture(controlPointerId);
+    const moved = controlMoved;
+    controlPointerId = null;
+    document.body.classList.remove("is-resizing");
+    if (!moved) centerPanes();
+  };
+  centerPanesButton.addEventListener("pointerup", stopControlResize);
+  centerPanesButton.addEventListener("pointercancel", stopControlResize);
+  centerPanesButton.addEventListener("click", (event) => {
+    if (event.detail === 0) centerPanes();
   });
   window.addEventListener("resize", () => window.requestAnimationFrame(preserveEditorPaneRatio));
   window.requestAnimationFrame(preserveEditorPaneRatio);
@@ -1790,6 +1861,9 @@ function refreshProjectControls() {
   window.requestAnimationFrame(preserveEditorPaneRatio);
   if (!open) {
     projectTree.replaceChildren();
+    workspaceTitle.textContent = activeDocument.kind === "file"
+      ? activeDocument.path.split("/").at(-1)
+      : "Scratch note";
     return;
   }
 
@@ -1873,8 +1947,10 @@ function refreshProjectControls() {
 }
 
 async function saveNote() {
-  if (!projects.isOpen) return;
-  if (activeDocument.kind === "theme") {
+  if (!projects.isOpen && activeDocument.kind !== "file") return;
+  if (activeDocument.kind === "file") {
+    await writeTextFile(activeDocument.path, editor.state.doc.toString());
+  } else if (activeDocument.kind === "theme") {
     await projects.saveTheme(editor.state.doc.toString());
     applyProjectTheme(projects.project.theme);
   } else if (activeDocument.kind === "toml") {
@@ -1885,7 +1961,7 @@ async function saveNote() {
   if (activeDocument.kind === "toml") await refreshPluginCatalog();
   dirty = false;
   updateSaveButton();
-  setStatus(activeDocument.kind === "note" ? "Saved" : "Saved configuration");
+  setStatus(activeDocument.kind === "note" || activeDocument.kind === "file" ? "Saved" : "Saved configuration");
   refreshProjectControls();
 }
 
@@ -1897,6 +1973,106 @@ async function refreshPluginCatalog() {
   }
   pluginCatalogTemplate = await createProjectPluginCatalog(projects.project.directory);
   configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook);
+}
+
+function pathDirectoryForFile(path) {
+  return path.slice(0, path.lastIndexOf("/")) || ".";
+}
+
+async function loadStandaloneMarkdown(path) {
+  if (dirty) await saveNote();
+  projects.close();
+  recentProjectKey = null;
+  activeDocument = { kind: "file", path };
+  applyProjectTheme(DEFAULT_PROJECT_THEME);
+  editorKind.textContent = "Markdown";
+  await refreshPluginCatalog();
+  setDocument(await readTextFile(path));
+  refreshProjectControls();
+  setStatus(`Opened ${path.split("/").at(-1)}`);
+  try {
+    await invoke("record_recent_file", { path, title: path.split("/").at(-1) });
+  } catch {
+    // The file remains open if the operating system cannot persist recents.
+  }
+}
+
+async function openMarkdownFile() {
+  const path = await openDialog({
+    title: "Open Markdown file or project manifest",
+    multiple: false,
+    filters: [{ name: "Markdown or project manifest", extensions: ["md", "markdown", "mdown", "mkdn", "toml"] }],
+  });
+  if (!path || Array.isArray(path)) return;
+  if (path.split("/").at(-1) === "project.toml") {
+    if (dirty) await saveNote();
+    const note = await projects.openProject(pathDirectoryForFile(path));
+    if (note) await loadNote(note);
+    return;
+  }
+  await loadStandaloneMarkdown(path);
+}
+
+async function openProjectFolder() {
+  if (dirty) await saveNote();
+  const note = await projects.chooseAndOpenProject();
+  if (note) await loadNote(note);
+}
+
+function closeOpenRecentMenu() {
+  openRecentMenu.hidden = true;
+  openRecentButton.setAttribute("aria-expanded", "false");
+}
+
+async function openRecentDocument(recent) {
+  closeOpenRecentMenu();
+  if (dirty) await saveNote();
+  if (recent.kind === "file") {
+    await loadStandaloneMarkdown(recent.path);
+    return;
+  }
+  const note = await projects.openProject(recent.path, recent.last_note_path ?? null);
+  if (note) await loadNote(note);
+}
+
+async function showOpenRecentMenu() {
+  openRecentMenu.replaceChildren();
+  const folderItem = document.createElement("button");
+  folderItem.type = "button";
+  folderItem.textContent = "Open project folder…";
+  folderItem.addEventListener("click", () => runProjectAction(openProjectFolder));
+  openRecentMenu.append(folderItem);
+  const fileItem = document.createElement("button");
+  fileItem.type = "button";
+  fileItem.textContent = "Open Markdown file…";
+  fileItem.addEventListener("click", () => runProjectAction(openMarkdownFile));
+  openRecentMenu.append(fileItem);
+  let recents = [];
+  try {
+    recents = await invoke("get_recent_documents");
+  } catch {
+    // The manual open commands remain available if recent-document storage fails.
+  }
+  if (recents.length) {
+    const separator = document.createElement("hr");
+    separator.className = "open-recent-separator";
+    openRecentMenu.append(separator);
+    for (const recent of recents) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.textContent = recent.title;
+      item.title = recent.path;
+      item.addEventListener("click", () => runProjectAction(() => openRecentDocument(recent)));
+      openRecentMenu.append(item);
+    }
+  } else {
+    const empty = document.createElement("span");
+    empty.className = "open-recent-empty";
+    empty.textContent = "No recent documents";
+    openRecentMenu.append(empty);
+  }
+  openRecentMenu.hidden = false;
+  openRecentButton.setAttribute("aria-expanded", "true");
 }
 
 async function loadNote(note) {
@@ -2004,6 +2180,8 @@ const editor = new EditorView({
 runButton.addEventListener("click", runNotebook);
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
 togglePreviewModeButton.addEventListener("click", togglePreviewMode);
+collapseDocumentPaneButton.addEventListener("click", collapseDocumentPane);
+collapseEditorPaneButton.addEventListener("click", collapseEditorPane);
 closeHelpButton.addEventListener("click", () => helpDialog.close());
 maximizeHelpButton.addEventListener("click", () => {
   const expanded = helpDialog.classList.toggle("is-maximized");
@@ -2022,6 +2200,7 @@ toggleSidebarButton.addEventListener("click", () => {
   refreshProjectControls();
 });
 installMainResizer();
+setPaneLayout("both");
 newProjectButton.addEventListener("click", () => runProjectAction(async () => {
   const title = await requestName({ title: "New RiX project", label: "Project name", value: "RiX Project" });
   if (!title) return;
@@ -2029,9 +2208,13 @@ newProjectButton.addEventListener("click", () => runProjectAction(async () => {
   if (note) await loadNote(note);
 }));
 openProjectButton.addEventListener("click", () => runProjectAction(async () => {
-  const note = await projects.chooseAndOpenProject();
-  if (note) await loadNote(note);
+  await openMarkdownFile();
 }));
+openRecentButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (openRecentMenu.hidden) showOpenRecentMenu().catch(showError);
+  else closeOpenRecentMenu();
+});
 saveNoteButton.addEventListener("click", () => runProjectAction(saveNote));
 newNotebookButton.addEventListener("click", () => runProjectAction(async () => {
   const title = await requestName({ title: "New notebook", label: "Notebook title", value: "Notebook" });
@@ -2090,8 +2273,14 @@ fileContextMenu.addEventListener("click", (event) => {
     }
   });
 });
-window.addEventListener("click", hideFileContextMenu);
-window.addEventListener("resize", hideFileContextMenu);
+window.addEventListener("click", (event) => {
+  hideFileContextMenu();
+  if (!event.target.closest(".open-control-group")) closeOpenRecentMenu();
+});
+window.addEventListener("resize", () => {
+  hideFileContextMenu();
+  closeOpenRecentMenu();
+});
 closeAppNoticeButton.addEventListener("click", hideError);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") hideFileContextMenu();
@@ -2113,10 +2302,9 @@ listen("menu-command", (event) => {
   };
   commands[event.payload]?.();
 });
-listen("open-recent-project", (event) => {
+listen("open-recent-document", (event) => {
   runProjectAction(async () => {
-    const note = await projects.openProject(event.payload.path, event.payload.last_note_path);
-    if (note) await loadNote(note);
+    await openRecentDocument(event.payload);
   });
 });
 window.addEventListener("keydown", (event) => {
@@ -2144,6 +2332,21 @@ window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
     openProjectButton.click();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "ArrowRight") {
+    event.preventDefault();
+    collapseDocumentPane();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "ArrowLeft") {
+    event.preventDefault();
+    collapseEditorPane();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "\\") {
+    event.preventDefault();
+    centerPanes();
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {

@@ -17,10 +17,14 @@
         </div>
         <div class="toolbar-actions">
           <p id="document-status" class="document-status" aria-live="polite">Local draft</p>
-          <button id="new-project" type="button" title="New project (⌘⇧A)">New project</button>
-          <button id="open-project" type="button" title="Open project (⌘O)">Open project</button>
+          <button id="new-project" type="button" title="New project (⌘⇧A)">New</button>
+          <div class="open-control-group">
+            <button id="open-project" type="button" title="Open a project folder or Markdown file (⌘O)">Open</button>
+            <button id="open-recent" class="open-recent-button" type="button" title="Open recent…" aria-label="Open recent" aria-expanded="false">⌄</button>
+            <menu id="open-recent-menu" class="open-recent-menu" hidden></menu>
+          </div>
           <button id="toggle-right-pane" type="button" title="Show rendered preview (⌘P or ⌘⇧P)" aria-pressed="false">Show preview</button>
-          <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run notebook</button>
+          <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run</button>
         </div>
       </header>
 
@@ -64,7 +68,13 @@ perimeter;
 ```
 </div>
         </section>
-        <div id="main-resizer" class="main-resizer" role="separator" aria-label="Resize editor and document panes" aria-orientation="vertical" tabindex="0"></div>
+        <div id="main-resizer" class="main-resizer" role="separator" aria-label="Resize editor and document panes" aria-orientation="vertical" tabindex="0">
+          <div class="divider-controls" aria-label="Pane layout controls">
+            <button id="collapse-document-pane" class="divider-control" type="button" title="Collapse preview and results (⌘⌥→)" aria-label="Collapse preview and results">→</button>
+            <button id="center-panes" class="divider-control divider-drag-control" type="button" title="Center panes; drag to resize (⌘⌥\\)" aria-label="Center panes; drag to resize">↔</button>
+            <button id="collapse-editor-pane" class="divider-control" type="button" title="Collapse editor (⌘⌥←)" aria-label="Collapse editor">←</button>
+          </div>
+        </div>
 
         <section class="document-pane" aria-label="Rendered notebook">
           <section id="slider-controls" class="slider-controls" aria-label="RiX controls" hidden>

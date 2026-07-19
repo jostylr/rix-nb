@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists, mkdir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_PROJECT_THEME, parseProjectTheme, projectThemeToml } from "./theme.js";
 
 const PROJECT_FILE = "project.toml";
@@ -146,6 +147,13 @@ export class ProjectManager {
     return this.notebooks.get(this.currentNotebookPath) || null;
   }
 
+  close() {
+    this.project = null;
+    this.notebooks.clear();
+    this.currentNotebookPath = null;
+    this.currentNotePath = null;
+  }
+
   async chooseAndOpenProject() {
     const path = await open({ title: "Open RiX project", directory: true, multiple: false, recursive: true });
     if (!path || Array.isArray(path)) return null;
@@ -153,6 +161,7 @@ export class ProjectManager {
   }
 
   async openProject(directory, lastNotePath = null) {
+    await invoke("grant_project_access", { path: directory });
     const projectPath = joinPath(directory, PROJECT_FILE);
     const stylePath = joinPath(directory, THEME_FILE);
     const themeExists = await exists(stylePath);
