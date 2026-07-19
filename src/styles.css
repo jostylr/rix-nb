@@ -848,10 +848,7 @@ body.is-resizing {
 }
 
 .rix-preview-result {
-  display: grid;
-  grid-template-columns: 4rem minmax(0, 1fr);
-  gap: 0.6rem;
-  align-items: baseline;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.83rem;
 }
@@ -868,6 +865,12 @@ body.is-resizing {
   overflow: visible;
   background: transparent;
   border: 0;
+}
+
+.rix-preview-result > .rix-output,
+.rix-preview-result > .rix-output-figure,
+.rix-preview-result > .rix-output-slides {
+  max-width: 100%;
 }
 
 .rix-preview-result-error {

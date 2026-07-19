@@ -5,6 +5,7 @@ import { linter } from "@codemirror/lint";
 import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import MarkdownIt from "markdown-it";
+import katex from "katex";
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/dist/katex.min.css";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -1109,7 +1110,26 @@ function renderDocumentPreview(documentRun) {
     staticRun.inlineRuns,
     { graphicReference: staticPreviewGraphicUrl },
   );
-  renderMarkdown(staticSource, [], { preserveStaticPreviewAssets: true });
+  renderStaticPreview(staticSource);
+}
+
+function renderStaticPreview(source) {
+  const mathFragments = [];
+  const markdownSource = source.replace(
+    /\$\$\s*\n?(\\begin\{array\}[\s\S]*?\\end\{array\})\s*\n?\$\$/g,
+    (_match, expression) => {
+      const token = `RIXSTATICMATH${mathFragments.length}TOKEN`;
+      mathFragments.push({ token, expression });
+      return token;
+    },
+  );
+  renderMarkdown(markdownSource, [], { preserveStaticPreviewAssets: true });
+  for (const { token, expression } of mathFragments) {
+    preview.innerHTML = preview.innerHTML.replace(
+      token,
+      katex.renderToString(expression, { displayMode: true, throwOnError: false }),
+    );
+  }
 }
 
 function runNotebook() {
