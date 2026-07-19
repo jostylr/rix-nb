@@ -21,22 +21,23 @@ x^2;
 
 Fence metadata follows \`rix\` on the opening fence. Metadata is space-separated.
 
-- \`new\` — run this cell in a fresh, isolated context.
+- \`flow\` — run in the shared linear context (default).
+- \`singleton\` — run in a fresh, isolated context.
 - \`refresh\` — begin a fresh context that later ordinary cells inherit.
-- \`live\` — marks a cell intended for future interactive HTML export.
-- \`show-code\` / \`hide-code\` — control whether code appears in the live preview.
-- \`show-output\` / \`hide-output\` — control whether cell output appears in the live preview.
-- \`show\` / \`hide\` — concise aliases that show or hide both code and output.
-- \`static:{expression}\` — evaluates an expression for the Static preview and static exports.
+- \`expensive\` — marks a cell whose recomputation can be deferred by a future cache policy.
+- \`set\` — evaluate definitions or effects without document rendering.
+- \`out\` — show the selected result only (default).
+- \`edu\` — show code and the selected result.
 
 Example:
 
-\`\`\`rix refresh hide-code show-output
+\`\`\`rix out refresh
 radius := 3;
+.static({; radius := 4; });
 22/7 * radius^2;
 \`\`\`
 
-Use **Show static** in the Preview toolbar to see only static replacements. Cells without a \`static:{...}\` directive do not appear in that mode.
+The final ordinary expression is the default output in each pathway. Use \`.out(value)\`, \`.staticOut(value)\`, or \`.liveOut(value)\` to select a different result; no-argument forms suppress that pathway. \`.static({; ... })\` and \`.live({; ... })\` are lazy mode blocks and return \`_\`.
 
 ## Inline values
 
@@ -46,10 +47,10 @@ Use \`@{...}\` anywhere outside a fenced code block. It evaluates in the shared 
 
 ## Sliders
 
-\`.Slider(...)\` and \`@_Slider(...)\` are notebook-only controls. They return exact RiX numbers and appear in the Controls region.
+\`.slider(...)\` is a notebook-host control. It returns an exact RiX number and appears in the Controls region.
 
 \`\`\`rix
-x := .Slider(1:5, 1/10, 3);
+x := .slider(1:5, 1/10, 3);
 y := x^2;
 \`\`\`
 

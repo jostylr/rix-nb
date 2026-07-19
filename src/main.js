@@ -153,15 +153,12 @@ markdownRenderer.renderer.rules.fence = (tokens, index, options, env, self) => {
   const run = env.rixRuns?.[env.rixCellIndex++] || null;
   const metadata = run?.metadata || parseFenceMetadata(token.info.trim().replace(/^rix(?:\s+|$)/i, ""));
   const renderedCode = metadata.showCode ? code : "";
-  if (!run || run.statements.length === 0 || !metadata.showOutput) {
+  if (!run || !run.liveOutput || !metadata.showOutput) {
     return renderedCode ? `<div class="rix-preview-cell">${renderedCode}</div>` : "";
   }
-
-  const results = run.statements.map((statement) => (
-    `<div class="rix-preview-result rix-preview-result-${statement.kind}">`
-      + `<span>line ${statement.line}</span>${statement.html || `<pre>${escapeHtml(statement.content)}</pre>`}</div>`
-  )).join("");
-  return `<div class="rix-preview-cell">${renderedCode}<div class="rix-preview-results">${results}</div></div>`;
+  const result = run.liveOutput;
+  const html = isOutputValue(result.value) ? renderOutputHtml(result.value, formatValue) : `<pre>${escapeHtml(result.content)}</pre>`;
+  return `<div class="rix-preview-cell">${renderedCode}<div class="rix-preview-results"><div class="rix-preview-result">${html}</div></div></div>`;
 };
 
 function resolveProjectAsset(source) {
@@ -288,133 +285,41 @@ async function openHelp(section = "notebook") {
   }
 }
 
-function tokenizeFenceMetadata(header) {
-  const tokens = [];
-  let index = 0;
-  while (index < header.length) {
-    while (/\s/.test(header[index] || "")) index += 1;
-    if (index >= header.length) break;
-    const start = index;
-    if (header.startsWith("static:{", index) || header.startsWith("live:{", index)) {
-      index += header.startsWith("static:{", index) ? "static:".length : "live:".length;
-      let depth = 0;
-      let quote = null;
-      let escaped = false;
-      for (; index < header.length; index += 1) {
-        const character = header[index];
-        if (quote) {
-          if (escaped) escaped = false;
-          else if (character === "\\") escaped = true;
-          else if (character === quote) quote = null;
-          continue;
-        }
-        if (character === "\"" || character === "'") quote = character;
-        else if (character === "{") depth += 1;
-        else if (character === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            index += 1;
-            break;
-          }
-        }
-      }
-      tokens.push(header.slice(start, index));
-      continue;
-    }
-    while (index < header.length && !/\s/.test(header[index])) index += 1;
-    tokens.push(header.slice(start, index));
-  }
-  return tokens;
-}
-
-function splitDirectiveParts(source) {
-  const parts = [];
-  let start = 0;
-  let depth = 0;
-  let quote = null;
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    if (quote) {
-      if (character === "\\") index += 1;
-      else if (character === quote) quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") quote = character;
-    else if ("([{".includes(character)) depth += 1;
-    else if (")]}".includes(character)) depth = Math.max(0, depth - 1);
-    else if (character === ";" && depth === 0) {
-      parts.push(source.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  parts.push(source.slice(start).trim());
-  return parts.filter(Boolean);
-}
-
-function parseOutputDirective(source) {
-  const parameters = new Map();
-  let expression = null;
-  for (const part of splitDirectiveParts(source)) {
-    const assignment = part.match(/^([a-z][a-zA-Z0-9_]*)\s*=\s*([\s\S]+)$/);
-    if (assignment) {
-      if (assignment[1] === "output") expression = assignment[2].trim();
-      else parameters.set(assignment[1], assignment[2].trim());
-    } else {
-      expression = part;
-    }
-  }
-  return { expression, parameters };
-}
-
 function parseFenceMetadata(header) {
   const metadata = {
     raw: header.trim(),
     flags: new Set(),
-    execution: "linear",
-    live: false,
-    liveExpression: null,
-    showCode: true,
+    execution: "flow",
+    role: "out",
+    showCode: false,
     showOutput: true,
-    staticExpression: null,
-    staticParameters: new Map(),
     unknown: [],
   };
-  for (const token of tokenizeFenceMetadata(header.trim())) {
+  for (const token of header.trim().split(/\s+/).filter(Boolean)) {
     const normalized = token.toLowerCase();
-    if (normalized === "new") {
-      metadata.flags.add("new");
-      metadata.execution = "new";
+    if (normalized === "flow") {
+      metadata.flags.add("flow");
+      metadata.execution = "flow";
+    } else if (normalized === "singleton") {
+      metadata.flags.add("singleton");
+      metadata.execution = "singleton";
     } else if (normalized === "refresh") {
       metadata.flags.add("refresh");
       metadata.execution = "refresh";
     } else if (normalized === "expensive") {
       metadata.flags.add("expensive");
-    } else if (normalized === "live") {
-      metadata.flags.add("live");
-      metadata.live = true;
-    } else if (normalized === "show") {
-      metadata.showCode = true;
-      metadata.showOutput = true;
-    } else if (normalized === "hide") {
+    } else if (normalized === "set") {
+      metadata.role = "set";
       metadata.showCode = false;
       metadata.showOutput = false;
-    } else if (normalized === "show-code") {
+    } else if (normalized === "edu") {
+      metadata.role = "edu";
       metadata.showCode = true;
-    } else if (normalized === "hide-code") {
-      metadata.showCode = false;
-    } else if (normalized === "show-output") {
       metadata.showOutput = true;
-    } else if (normalized === "hide-output") {
-      metadata.showOutput = false;
-    } else if (token.startsWith("static:{") && token.endsWith("}")) {
-      const directive = parseOutputDirective(token.slice("static:{".length, -1).trim());
-      metadata.staticExpression = directive.expression;
-      metadata.staticParameters = directive.parameters;
-    } else if (token.startsWith("live:{") && token.endsWith("}")) {
-      const directive = parseOutputDirective(token.slice("live:{".length, -1).trim());
-      metadata.flags.add("live");
-      metadata.live = true;
-      metadata.liveExpression = directive.expression;
+    } else if (normalized === "out") {
+      metadata.role = "out";
+      metadata.showCode = false;
+      metadata.showOutput = true;
     } else {
       metadata.unknown.push(token);
     }
@@ -732,15 +637,9 @@ function inferSliderConfig(args) {
 function createNotebookSlider(args, runtime) {
   const config = inferSliderConfig(args);
   const id = `${runtime.currentSourceId}:${runtime.sliderCounter++}`;
-  const parameterValue = runtime.currentSliderName
-    ? runtime.staticParameters.get(runtime.currentSliderName)
-    : undefined;
-  const parameterIndex = parameterValue === undefined
-    ? undefined
-    : Math.round((asRational(parameterValue, `Static value for ${runtime.currentSliderName}`).toNumber() - config.low.toNumber()) / config.step.toNumber());
   const index = Math.max(0, Math.min(
     config.steps,
-    parameterIndex ?? runtime.sliderOverrides.get(id) ?? config.startIndex,
+    runtime.sliderOverrides.get(id) ?? config.startIndex,
   ));
   const value = config.low.add(config.step.multiply(new Integer(BigInt(index))));
   let valueWidth = 1;
@@ -764,16 +663,49 @@ function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
     sliders: [],
     currentSourceId: "document",
     currentSliderName: null,
-    evaluateStatic: options.evaluateStatic === true,
-    staticParameters: options.staticParameters || new Map(),
+    mode: options.mode === "static" ? "static" : "live",
+    currentPublication: null,
   };
   const systemContext = createDefaultSystemContext({ frozen: false });
-  systemContext.register("SLIDER", {
+  systemContext.registerHost("slider", {
     impl(args) {
       return createNotebookSlider(args, runtime);
     },
     doc: "Notebook-only interactive slider control",
   });
+  const modeBlock = (mode) => ({
+    lazy: true,
+    impl(args, context, evaluate) {
+      if (args.length > 1) throw new Error(`.${mode} accepts at most one block`);
+      if (args.length === 1 && runtime.mode === mode) {
+        context.withSharedBody(args[0], () => evaluate(args[0]));
+      }
+      return null;
+    },
+    doc: `Evaluate a notebook block only in ${mode} mode`,
+  });
+  systemContext.registerHost("static", modeBlock("static"));
+  systemContext.registerHost("live", modeBlock("live"));
+  const outputCommand = (channel) => ({
+    lazy: true,
+    impl(args, _context, evaluate) {
+      if (args.length > 1) throw new Error(`.${channel} accepts zero or one argument`);
+      if (!runtime.currentPublication) throw new Error(`.${channel} may only be used while running a notebook cell`);
+      const target = channel === "out" ? "out" : channel === "staticout" ? "static" : "live";
+      if (target !== "out" && target !== runtime.mode) return null;
+      if (runtime.currentPublication[target].declared) throw new Error(`.${channel} may only be used once per cell`);
+      runtime.currentPublication[target] = {
+        declared: true,
+        suppressed: args.length === 0,
+        value: args.length === 0 ? null : evaluate(args[0]),
+      };
+      return null;
+    },
+    doc: "Choose the notebook publication output for this cell",
+  });
+  systemContext.registerHost("out", outputCommand("out"));
+  systemContext.registerHost("staticOut", outputCommand("staticout"));
+  systemContext.registerHost("liveOut", outputCommand("liveout"));
   systemContext.freeze();
   runtime.systemContext = systemContext;
   return runtime;
@@ -817,7 +749,7 @@ function appendOutput(statement) {
 }
 
 function executeCell(cell, runtime) {
-  const context = cell.metadata.execution === "new"
+  const context = cell.metadata.execution === "singleton"
     ? new Context()
     : cell.metadata.execution === "refresh"
       ? (runtime.context = new Context())
@@ -832,14 +764,19 @@ function executeCell(cell, runtime) {
   const irNodes = lower(ast);
   const sources = splitTopLevelStatements(cell.code);
   const statements = [];
-  let staticOutput = null;
+  let implicitOutput = { available: false, value: null };
+  runtime.currentPublication = {
+    out: { declared: false, suppressed: false, value: null },
+    static: { declared: false, suppressed: false, value: null },
+    live: { declared: false, suppressed: false, value: null },
+  };
 
   for (const [index, irNode] of irNodes.entries()) {
     const source = sources[index] || { start: irNode.pos?.[0] || 0, code: "<source unavailable>" };
     const sourceLine = posToLineCol(cell.code, source.start).line;
     const line = cell.codeLine + sourceLine - 1;
     try {
-      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*(?:\.|@_)?Slider\s*\(/)?.[1] || "Slider";
+      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*\.slider\s*\(/)?.[1] || "slider";
       runtime.currentSliderName = sliderName;
       const sliderStart = runtime.sliders.length;
       const value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
@@ -848,6 +785,8 @@ function executeCell(cell, runtime) {
         slider.line = line;
       }
       runtime.currentSliderName = null;
+      const hostCommand = irNode.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(irNode.args?.[0] || ""));
+      if (!hostCommand) implicitOutput = { available: true, value };
       const format = (item) => formatValue(item);
       statements.push({
         line,
@@ -869,21 +808,19 @@ function executeCell(cell, runtime) {
       break;
     }
   }
-
-  if (runtime.evaluateStatic && cell.metadata.staticExpression && statements.every((statement) => statement.kind === "result")) {
-    try {
-      context.setEnv("__source__", cell.metadata.staticExpression);
-      let value;
-      for (const irNode of lower(parse(cell.metadata.staticExpression))) {
-        value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
-      }
-      staticOutput = { value, content: formatValue(value), kind: "result" };
-    } catch (error) {
-      staticOutput = { content: error instanceof Error ? error.message : String(error), kind: "error" };
-    }
-  }
-
-  return { statements, metadata: cell.metadata, staticOutput };
+  const selected = runtime.mode === "static"
+    ? runtime.currentPublication.static.declared ? runtime.currentPublication.static : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput
+    : runtime.currentPublication.live.declared ? runtime.currentPublication.live : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput;
+  const publication = selected.available === false || selected.suppressed
+    ? null
+    : { value: selected.value, content: formatValue(selected.value), kind: "result" };
+  runtime.currentPublication = null;
+  return {
+    statements,
+    metadata: cell.metadata,
+    staticOutput: runtime.mode === "static" ? publication : null,
+    liveOutput: runtime.mode === "live" ? publication : null,
+  };
 }
 
 function executeInlineExpression(inline, runtime) {
@@ -993,42 +930,8 @@ function executeDocument(source, options = {}) {
     outputStatements: outputStatements.sort((left, right) => left.position - right.position),
     sliders: runtime.sliders,
     renderedSource: replaceInlineExpressions(source, inlineRuns),
-    staticRenderedSource: options.evaluateStatic ? renderStaticDocument(document, runs, inlineRuns) : null,
+    staticRenderedSource: options.mode === "static" ? renderStaticDocument(document, runs, inlineRuns) : null,
   };
-}
-
-// A static directive may pin notebook slider values for an export.  The
-// expressions are evaluated separately so static output never inherits the
-// temporary slider positions from the authoring session.
-function staticParameterOverrides(document) {
-  const expressions = new Map();
-  for (const cell of document.cells) {
-    for (const [name, expression] of cell.metadata.staticParameters || []) {
-      expressions.set(name, expression);
-    }
-  }
-  if (expressions.size === 0) return new Map();
-
-  const runtime = makeNotebookRuntime(new Map());
-  const context = runtime.context;
-  context.setEnv("__system_context__", runtime.systemContext);
-  context.setEnv("__registry__", runtime.registry);
-  const overrides = new Map();
-  for (const [name, expression] of expressions) {
-    try {
-      context.setEnv("__source__", expression);
-      let value;
-      const nodes = lower(parse(expression));
-      if (nodes.length === 0) throw new Error("expression is empty");
-      for (const node of nodes) value = evaluate(node, context, runtime.registry, runtime.systemContext);
-      asRational(value, `Static value for ${name}`);
-      overrides.set(name, value);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Invalid static parameter ${name}=${expression}: ${message}`);
-    }
-  }
-  return overrides;
 }
 
 function escapeMarkdownCell(value) {
@@ -1086,6 +989,7 @@ function staticPreviewGraphicUrl(graphic) {
 }
 
 function staticCellReplacement(run, graphicReference) {
+  if (run?.metadata.role === "set") return "";
   if (!run?.staticOutput) return "";
   if (run.staticOutput.kind === "error") return `> **RiX export error:** ${run.staticOutput.content}`;
   return staticOutputMarkdown(run.staticOutput.value, { graphicReference });
@@ -1098,7 +1002,7 @@ function renderStaticDocument(document, runs, inlineRuns, options = {}) {
     if (node.type === "markdown") return node.source;
     if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
     const run = runs[node.value.index];
-    if (run?.metadata.live && options.liveCellPlaceholder) {
+    if (options.liveCellIndexes?.has(node.value.index) && options.liveCellPlaceholder) {
       return `\n\n<!-- rix-live-cell:${node.value.index} -->\n\n`;
     }
     const replacement = staticCellReplacement(run, graphicReference);
@@ -1121,7 +1025,7 @@ function renderQuartoDocumentContent(document, runs, inlineRuns, options = {}) {
     const run = runs[node.value.index];
     const staticContent = staticCellReplacement(run, graphicReference);
     const runtimeSource = includeRuntimeSource ? quartoRuntimeSourceMarkup(node.value) : "";
-    if (!run?.metadata.live) return `${runtimeSource}${staticContent ? `\n\n${staticContent}\n\n` : ""}`;
+    if (!options.liveCellIndexes?.has(node.value.index)) return `${runtimeSource}${staticContent ? `\n\n${staticContent}\n\n` : ""}`;
     return `${runtimeSource}\n\n::: {.rix-static}\n${staticContent}\n:::\n\n::: {.rix-live}\n${liveWidgetMarkup(node.value.index, node.value.metadata.showCode)}\n:::\n\n`;
   }).join("");
 }
@@ -1197,11 +1101,7 @@ function renderDocumentPreview(documentRun) {
     renderMarkdown(documentRun.renderedSource, documentRun.runs);
     return;
   }
-  const staticRun = executeDocument(documentRun.document.source, {
-    evaluateStatic: true,
-    sliderOverrides: new Map(),
-    staticParameters: staticParameterOverrides(documentRun.document),
-  });
+  const staticRun = executeDocument(documentRun.document.source, { mode: "static", sliderOverrides: new Map() });
   releaseStaticPreviewObjectUrls();
   const staticSource = renderStaticDocument(
     staticRun.document,
@@ -1671,21 +1571,27 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
   const liveTargets = new Set();
   for (const notePath of notes) {
     const source = await readTextFile(notePath);
-    const sourceDocument = parseNotebookDocument(source);
     const staticDocumentRun = executeDocument(source, {
-      evaluateStatic: true,
+      mode: "static",
       sliderOverrides: new Map(),
-      staticParameters: staticParameterOverrides(sourceDocument),
     });
+    const liveDocumentRun = executeDocument(source, { mode: "live", sliderOverrides: new Map() });
     const relativePath = pathRelative(projects.project.directory, notePath);
-    const hasLiveCells = staticDocumentRun.runs.some((run) => run?.metadata.live);
+    const liveCellIndexes = new Set(liveDocumentRun.runs.flatMap((run, index) => (
+      run?.metadata.role !== "set" && run?.liveOutput ? [index] : []
+    )));
+    const hasLiveCells = liveCellIndexes.size > 0;
     const staticSources = new Map();
     for (const [target, root] of Object.entries(outputRoots)) {
       if (!root) continue;
       const graphicReferences = await materializeStaticGraphics(staticDocumentRun, relativePath, root);
       staticSources.set(target, renderStaticDocument(
         staticDocumentRun.document, staticDocumentRun.runs, staticDocumentRun.inlineRuns,
-        { graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic), liveCellPlaceholder: hasLiveCells && target === "html" },
+        {
+          graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
+          liveCellPlaceholder: hasLiveCells && target === "html",
+          liveCellIndexes,
+        },
       ));
       if (target === "quarto") {
         staticSources.set(target, renderQuartoDocumentContent(
@@ -1695,6 +1601,7 @@ async function exportScope({ scope, notebookPath, includeMarkdown, includeHtml, 
           {
             graphicReference: (graphic) => graphicReferences.get(graphic) || formatValue(graphic),
             includeRuntimeSource: hasLiveCells,
+            liveCellIndexes,
           },
         ));
       }

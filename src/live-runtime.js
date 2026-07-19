@@ -54,53 +54,14 @@ if (payloadElement || sourceCellElements.length) {
   }
 
   function parseMetadata(header) {
-    const tokens = tokenizeMetadata(header);
-    const liveDirective = tokens.find((token) => token.startsWith("live:{") && token.endsWith("}"));
+    const tokens = header.trim().split(/\s+/).filter(Boolean).map((token) => token.toLowerCase());
+    const role = tokens.includes("set") ? "set" : tokens.includes("edu") ? "edu" : "out";
     return {
-      live: tokens.some((token) => token.toLowerCase() === "live") || Boolean(liveDirective),
-      liveExpression: liveDirective ? liveDirective.slice("live:{".length, -1).trim() : null,
-      execution: tokens.some((token) => token.toLowerCase() === "new")
-        ? "new"
-        : tokens.some((token) => token.toLowerCase() === "refresh") ? "refresh" : "linear",
-      showCode: !tokens.some((token) => token.toLowerCase() === "hide" || token.toLowerCase() === "hide-code"),
-      showOutput: !tokens.some((token) => token.toLowerCase() === "hide" || token.toLowerCase() === "hide-output"),
+      role,
+      execution: tokens.includes("singleton") ? "singleton" : tokens.includes("refresh") ? "refresh" : "flow",
+      showCode: role === "edu",
+      showOutput: role !== "set",
     };
-  }
-
-  function tokenizeMetadata(header) {
-    const tokens = [];
-    let index = 0;
-    while (index < header.length) {
-      while (/\s/.test(header[index] || "")) index += 1;
-      if (index >= header.length) break;
-      const start = index;
-      if (header.startsWith("static:{", index) || header.startsWith("live:{", index)) {
-        index += header.startsWith("static:{", index) ? "static:".length : "live:".length;
-        let depth = 0;
-        let quote = null;
-        for (; index < header.length; index += 1) {
-          const character = header[index];
-          if (quote) {
-            if (character === "\\") index += 1;
-            else if (character === quote) quote = null;
-            continue;
-          }
-          if (character === '"' || character === "'") quote = character;
-          else if (character === "{") depth += 1;
-          else if (character === "}") {
-            depth -= 1;
-            if (depth === 0) {
-              index += 1;
-              break;
-            }
-          }
-        }
-      } else {
-        while (index < header.length && !/\s/.test(header[index])) index += 1;
-      }
-      tokens.push(header.slice(start, index));
-    }
-    return tokens;
   }
 
   function asRational(value, label) {
@@ -152,9 +113,17 @@ if (payloadElement || sourceCellElements.length) {
 
   function makeRuntime(sliders) {
     const registry = createDefaultRegistry();
-    const runtime = { registry, context: new Context(), systemContext: null, currentCell: 0, sliderCount: 0, currentSliderName: null };
+    const runtime = {
+      registry,
+      context: new Context(),
+      systemContext: null,
+      currentCell: 0,
+      sliderCount: 0,
+      currentSliderName: null,
+      currentPublication: null,
+    };
     const systemContext = createDefaultSystemContext({ frozen: false });
-    systemContext.register("SLIDER", {
+    systemContext.registerHost("slider", {
       impl(args) {
         const config = inferSlider(args);
         const id = `${runtime.currentCell}:${runtime.sliderCount++}`;
@@ -165,13 +134,38 @@ if (payloadElement || sourceCellElements.length) {
       },
       doc: "RiX Notebook live slider",
     });
+    const modeBlock = (mode) => ({
+      lazy: true,
+      impl(args, context, evaluate) {
+        if (args.length > 1) throw new Error(`.${mode} accepts at most one block`);
+        if (args.length === 1 && mode === "live") context.withSharedBody(args[0], () => evaluate(args[0]));
+        return null;
+      },
+    });
+    systemContext.registerHost("static", modeBlock("static"));
+    systemContext.registerHost("live", modeBlock("live"));
+    const outputCommand = (channel) => ({
+      lazy: true,
+      impl(args, _context, evaluate) {
+        if (args.length > 1) throw new Error(`.${channel} accepts zero or one argument`);
+        if (!runtime.currentPublication) throw new Error(`.${channel} may only be used while running a notebook cell`);
+        const target = channel === "out" ? "out" : channel === "staticout" ? "static" : "live";
+        if (target !== "out" && target !== "live") return null;
+        if (runtime.currentPublication[target].declared) throw new Error(`.${channel} may only be used once per cell`);
+        runtime.currentPublication[target] = { declared: true, suppressed: args.length === 0, value: args.length === 0 ? null : evaluate(args[0]) };
+        return null;
+      },
+    });
+    systemContext.registerHost("out", outputCommand("out"));
+    systemContext.registerHost("staticOut", outputCommand("staticout"));
+    systemContext.registerHost("liveOut", outputCommand("liveout"));
     systemContext.freeze();
     runtime.systemContext = systemContext;
     return runtime;
   }
 
   function executeCell(cell, runtime) {
-    const context = cell.metadata.execution === "new"
+    const context = cell.metadata.execution === "singleton"
       ? new Context()
       : cell.metadata.execution === "refresh" ? (runtime.context = new Context()) : runtime.context;
     context.setEnv("__system_context__", runtime.systemContext);
@@ -179,10 +173,19 @@ if (payloadElement || sourceCellElements.length) {
     context.setEnv("__source__", cell.code);
     runtime.currentCell = cell.index;
     const results = [];
+    let implicitOutput = { available: false, value: null };
+    runtime.currentPublication = {
+      out: { declared: false, suppressed: false, value: null },
+      static: { declared: false, suppressed: false, value: null },
+      live: { declared: false, suppressed: false, value: null },
+    };
     for (const node of lower(parse(cell.code))) {
       try {
         runtime.currentSliderName = sourceNameForNode(cell.code, results.length);
-        results.push({ value: evaluate(node, context, runtime.registry, runtime.systemContext), error: null });
+        const value = evaluate(node, context, runtime.registry, runtime.systemContext);
+        results.push({ value, error: null });
+        const hostCommand = node.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(node.args?.[0] || ""));
+        if (!hostCommand) implicitOutput = { available: true, value };
         runtime.currentSliderName = null;
       } catch (error) {
         runtime.currentSliderName = null;
@@ -190,23 +193,19 @@ if (payloadElement || sourceCellElements.length) {
         break;
       }
     }
-    let liveResult = null;
-    if (cell.metadata.liveExpression && !results.some((result) => result.error)) {
-      try {
-        context.setEnv("__source__", cell.metadata.liveExpression);
-        for (const node of lower(parse(cell.metadata.liveExpression))) {
-          liveResult = { value: evaluate(node, context, runtime.registry, runtime.systemContext), error: null };
-        }
-      } catch (error) {
-        liveResult = { value: null, error: error instanceof Error ? error.message : String(error) };
-      }
-    }
+    const selected = runtime.currentPublication.live.declared
+      ? runtime.currentPublication.live
+      : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput;
+    const liveResult = selected.available === false || selected.suppressed
+      ? null
+      : { value: selected.value, error: null };
+    runtime.currentPublication = null;
     return { results, liveResult };
   }
 
   function sourceNameForNode(source, index) {
     const statements = source.split(/;\s*(?:\n|$)/).filter(Boolean);
-    return statements[index]?.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*(?:\.|@_)?Slider\s*\(/)?.[1] || "Parameter";
+    return statements[index]?.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*\.slider\s*\(/)?.[1] || "Parameter";
   }
 
   function run() {
@@ -215,7 +214,7 @@ if (payloadElement || sourceCellElements.length) {
     const runtime = makeRuntime(sliders);
     for (const cell of cells) {
       const result = executeCell(cell, runtime);
-      if (cell.metadata.live) renderWidget(cell, result);
+      if (cell.metadata.role !== "set" && document.querySelector(`[data-rix-live-cell="${cell.index}"]`)) renderWidget(cell, result);
     }
     renderControls(sliders);
   }
@@ -227,7 +226,7 @@ if (payloadElement || sourceCellElements.length) {
       ? cell.metadata.showCode
       : widget.dataset.rixShowCode === "true";
     const code = showCode ? `<details class="rix-live-source"><summary>RiX code</summary><pre><code>${escapeLiveHtml(cell.code)}</code></pre></details>` : "";
-    const result = execution.liveResult || execution.results.at(-1);
+    const result = execution.liveResult;
     let output = "";
     if (cell.metadata.showOutput && result) {
       output = result.error

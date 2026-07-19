@@ -10,7 +10,7 @@ editing and document-rendering experience.
 This initial application opens a native macOS window with a CodeMirror 6
 Markdown editor, a live HTML preview, and a first RiX execution loop. The
 application runs fenced `rix` blocks and `@{expression}` inline values in
-document order; normal blocks share a notebook context and a `rix new` block
+document order; normal `rix flow` blocks share a notebook context and a `rix singleton` block
 starts with a fresh isolated one. A `rix refresh` block starts a fresh context
 which becomes the context for subsequent ordinary blocks. Results update live
 after a short pause while typing.
@@ -22,19 +22,18 @@ the rendered Markdown preview, which includes the current RiX statement results.
 
 ### Notebook controls
 
-RiX Notebook adds a notebook-only `Slider` system function. Both `.Slider(...)`
-and `@_Slider(...)` work in notebook cells; neither is a general RiX runtime
-feature. A slider returns an exact RiX number and appears in the results pane.
+RiX Notebook adds a notebook-host `.slider(...)` function; it is not a general
+RiX runtime feature. A slider returns an exact RiX number and appears in the results pane.
 Moving it re-evaluates the document in source order.
 
 ```rix
-x := .Slider(1:5, 1/10, 3);
+x := .slider(1:5, 1/10, 3);
 area := x^2;
 ```
 
 The positional form is `(interval, step-or-steps, start)`. A positive integer
 second value of 3 or greater means a number of steps; other nonzero exact values
-are step sizes. The map form is `.Slider({= interval=1:5, step=1/10, start=3})`
+are step sizes. The map form is `.slider({= interval=1:5, step=1/10, start=3})`
 or `steps` instead of `step`. Omit arguments for `-10:10`, 20 steps, and a
 midpoint start. RiX currently writes `1/10` rather than a leading decimal `.1`.
 
@@ -65,25 +64,25 @@ SVG project assets display in the native preview.
 
 Use **Export** (`Cmd-E`) to export the current note, a notebook, or the entire
 project as rendered Markdown, standalone static HTML, and/or a Quarto project.
-For a `rix` fence, `static:{expression}` evaluates the expression after that
-cell has run and inserts its value into every static target. A directive can
-also pin named notebook sliders for deterministic export:
+The final ordinary expression in an `out` cell is its default publication
+output. Use lazy `.static({; ... })` and `.live({; ... })` blocks to run
+mode-specific code in document order; each returns `_` and is not itself an
+output. `.out(value)`, `.staticOut(value)`, and `.liveOut(value)` explicitly
+choose an output for both pathways or one pathway respectively. Calling an
+output command with no argument suppresses that pathway's implicit output:
 
 ````markdown
-```rix hide static:{report}
-report := .Figure(.Plot.Polynomial([1, -2, 1], [-2, 4]), "A quadratic");
-```
-
-```rix hide static:{root=1; output=report}
-root := .Slider(0:3, 1, 2);
+```rix out
+root := .slider(0:3, 1, 2);
+.static({; root := 1; });
 report := .Table(["root"], [[root]]);
 ```
 ````
 
-Within a directive, semicolon-separated `name=value` entries are static
-slider values and the final bare expression (or `output=...`) is the rendered
-value. Parameters apply to the note's static run, so a later static directive
-can intentionally refine an earlier value for the same slider.
+This example uses the slider interactively in live mode and pins `root` to 1
+only for the static pathway. Fence roles are `set` (invisible), `out` (results
+only, the default), and `edu` (code and results); execution modes are `flow`
+(default), `singleton`, `refresh`, and `expensive`.
 
 Each selected target gets its own root: `markdown/`, `html/`, or `quarto/`.
 Structured RiX outputs remain structured during export: text, headings,
@@ -104,17 +103,15 @@ quarto render
 
 ### Live HTML and Quarto pages
 
-Add `live` to a RiX fence to make it an interactive widget in the standalone
-HTML and Quarto HTML / Reveal.js targets. `live:{expression}` is the explicit
-form when the live result should be a named object rather than the cell's last
-value. The browser bundle is copied to
+Any `out` or `edu` cell with a live publication output becomes an interactive
+widget in standalone HTML and Quarto HTML / Reveal.js targets. The browser bundle is copied to
 `assets/rix-live/` only when an export contains a live cell. Cells share a
 page-level RiX context, and notebook sliders recompute the live results in
 source order.
 
 ````markdown
-```rix hide-code live:{report} static:{parameter=1; report}
-parameter := .Slider(0:3, 1, 1);
+```rix out
+parameter := .slider(0:3, 1, 1);
 report := .Table(["x", "x²"], [[parameter, parameter^2]]);
 ```
 ````

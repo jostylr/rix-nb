@@ -4,7 +4,7 @@ This note demonstrates an export-only RiX slide deck. Its Quarto export uses
 Reveal.js automatically; static Markdown and HTML retain the slide sections in
 reading order.
 
-```rix hide static:{deck}
+```rix out
 values := .Table(["x", "f(x)"], [[0, 1], [1, 0], [2, 1]]);
 curve := .Plot.Polynomial([1, -2, 1], [-2, 4]);
 deck := .Slides([

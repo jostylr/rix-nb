@@ -84,12 +84,12 @@ Move the control in the results pane to update this document live. The slider
 is notebook-only: the value it returns is an ordinary exact RiX number.
 
 \`\`\`rix
-x := .Slider(1:5, 1/10, 3);
+x := .slider(1:5, 1/10, 3);
 y := x^2;
 y;
 \`\`\`
 
-For a named form, use \`.Slider({= interval=1:5, step=1/10, start=3})\`.
+For a named form, use \`.slider({= interval=1:5, step=1/10, start=3})\`.
 `;
 
 const STARTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 250" role="img" aria-label="Right triangle diagram">
