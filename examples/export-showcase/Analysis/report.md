@@ -6,9 +6,10 @@ such as $f(x) = x^2 - 2x + 1 = (x - 1)^2$, and computed prose.
 ```rix out
 root := .slider(0:3, 1, 2);
 .static({; root := 1; });
+.Plugin.Load("plot");
 values := .Table(["x", "f(x)"], [[0, root^2], [1, (1-root)^2], [2, (2-root)^2], [3, (3-root)^2]], {= caption = "Selected exact values" });
 division := .Algebra.SyntheticDivision(root, [1, -2*root, root^2]);
-curve := .Plot.Polynomial([1, -2*root, root^2], [-2, 4], {= size = [640, 360], stroke = "#2d6ca2" });
+curve := .plot.Polynomial([1, -2*root, root^2], [-2, 4], {= size = [640, 360], stroke = "#2d6ca2" });
 report := .Fragment([
   .Heading(2, "Computed results"),
   .Paragraph("Move the parameter to change the exact vertex."),

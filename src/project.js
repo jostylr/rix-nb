@@ -1,7 +1,5 @@
-import { open } from "@tauri-apps/plugin-dialog";
-import { exists, mkdir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs";
-import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_PROJECT_THEME, parseProjectTheme, projectThemeToml } from "./theme.js";
+import { assertDocumentStore } from "./notebook-web/contracts.js";
 
 const PROJECT_FILE = "project.toml";
 const NOTEBOOK_FILE = "notebook.toml";
@@ -128,7 +126,8 @@ function parseNotebook(source) {
 }
 
 export class ProjectManager {
-  constructor() {
+  constructor(store) {
+    this.store = assertDocumentStore(store);
     this.project = null;
     this.notebooks = new Map();
     this.currentNotebookPath = null;
@@ -155,29 +154,29 @@ export class ProjectManager {
   }
 
   async chooseAndOpenProject() {
-    const path = await open({ title: "Open RiX project", directory: true, multiple: false, recursive: true });
+    const path = await this.store.chooseDirectory?.({ title: "Open RiX project" });
     if (!path || Array.isArray(path)) return null;
     return this.openProject(path);
   }
 
   async openProject(directory, lastNotePath = null) {
-    await invoke("grant_project_access", { path: directory });
+    await this.store.grantDirectory?.(directory);
     const projectPath = joinPath(directory, PROJECT_FILE);
     const stylePath = joinPath(directory, THEME_FILE);
-    const themeExists = await exists(stylePath);
-    const theme = themeExists ? parseProjectTheme(await readTextFile(stylePath)) : DEFAULT_PROJECT_THEME;
+    const themeExists = await this.store.exists(stylePath);
+    const theme = themeExists ? parseProjectTheme(await this.store.readText(stylePath)) : DEFAULT_PROJECT_THEME;
     this.project = {
       directory,
       path: projectPath,
       stylePath,
       themeExists,
       theme,
-      ...parseProject(await readTextFile(projectPath)),
+      ...parseProject(await this.store.readText(projectPath)),
     };
     this.notebooks.clear();
     for (const relativePath of this.project.notebooks) {
       const path = joinPath(directory, relativePath);
-      this.notebooks.set(path, { path, relativePath, ...parseNotebook(await readTextFile(path)) });
+      this.notebooks.set(path, { path, relativePath, ...parseNotebook(await this.store.readText(path)) });
     }
     if (this.notebooks.size === 0) throw new Error("Project contains no notebooks");
     if (lastNotePath) {
@@ -194,20 +193,20 @@ export class ProjectManager {
   }
 
   async createProject(name) {
-    const parent = await open({ title: "Choose a folder for the new RiX project", directory: true, multiple: false, recursive: true });
+    const parent = await this.store.chooseDirectory?.({ title: "Choose a folder for the new RiX project" });
     if (!parent || Array.isArray(parent)) return null;
     const directory = joinPath(parent, slug(name, "rix-project"));
-    if (await exists(joinPath(directory, PROJECT_FILE))) {
+    if (await this.store.exists(joinPath(directory, PROJECT_FILE))) {
       throw new Error(`A RiX project already exists at ${directory}`);
     }
     const notebookDirectory = joinPath(directory, "Notebook");
-    await mkdir(notebookDirectory, { recursive: true });
-    await mkdir(joinPath(directory, "assets"), { recursive: true });
-    await writeTextFile(joinPath(directory, PROJECT_FILE), projectToml(name, ["Notebook/notebook.toml"]));
-    await writeTextFile(joinPath(directory, THEME_FILE), projectThemeToml());
-    await writeTextFile(joinPath(notebookDirectory, NOTEBOOK_FILE), notebookToml("Notebook", ["index.md"]));
-    await writeTextFile(joinPath(notebookDirectory, "index.md"), STARTER_NOTE);
-    await writeTextFile(joinPath(directory, "assets/right-triangle.svg"), STARTER_SVG);
+    await this.store.mkdir(notebookDirectory, { recursive: true });
+    await this.store.mkdir(joinPath(directory, "assets"), { recursive: true });
+    await this.store.writeText(joinPath(directory, PROJECT_FILE), projectToml(name, ["Notebook/notebook.toml"]));
+    await this.store.writeText(joinPath(directory, THEME_FILE), projectThemeToml());
+    await this.store.writeText(joinPath(notebookDirectory, NOTEBOOK_FILE), notebookToml("Notebook", ["index.md"]));
+    await this.store.writeText(joinPath(notebookDirectory, "index.md"), STARTER_NOTE);
+    await this.store.writeText(joinPath(directory, "assets/right-triangle.svg"), STARTER_SVG);
     return this.openProject(directory);
   }
 
@@ -225,12 +224,12 @@ export class ProjectManager {
     if (!notebook) throw new Error("Note does not belong to this project");
     this.currentNotebookPath = notebook.path;
     this.currentNotePath = path;
-    return { path, source: await readTextFile(path) };
+    return { path, source: await this.store.readText(path) };
   }
 
   async saveCurrentNote(source) {
     if (!this.currentNotePath) throw new Error("Open a project note before saving");
-    await writeTextFile(this.currentNotePath, source);
+    await this.store.writeText(this.currentNotePath, source);
   }
 
   async saveManifest(path, source) {
@@ -243,10 +242,10 @@ export class ProjectManager {
         notebooks.set(notebookPath, {
           path: notebookPath,
           relativePath,
-          ...parseNotebook(await readTextFile(notebookPath)),
+          ...parseNotebook(await this.store.readText(notebookPath)),
         });
       }
-      await writeTextFile(path, source);
+      await this.store.writeText(path, source);
       this.project = { ...this.project, ...parsed };
       this.notebooks = notebooks;
       return;
@@ -254,19 +253,19 @@ export class ProjectManager {
     const current = this.notebooks.get(path);
     if (!current) throw new Error("Notebook manifest does not belong to this project");
     const parsed = parseNotebook(source);
-    await writeTextFile(path, source);
+    await this.store.writeText(path, source);
     this.notebooks.set(path, { ...current, ...parsed });
   }
 
   async themeSource() {
     if (!this.project) throw new Error("Open a project first");
-    return this.project.themeExists ? readTextFile(this.project.stylePath) : projectThemeToml();
+    return this.project.themeExists ? this.store.readText(this.project.stylePath) : projectThemeToml();
   }
 
   async saveTheme(source) {
     if (!this.project) throw new Error("Open a project first");
     const theme = parseProjectTheme(source);
-    await writeTextFile(this.project.stylePath, source);
+    await this.store.writeText(this.project.stylePath, source);
     this.project.theme = theme;
     this.project.themeExists = true;
   }
@@ -276,12 +275,12 @@ export class ProjectManager {
     const folder = slug(title, "notebook");
     const relativePath = `${folder}/${NOTEBOOK_FILE}`;
     const path = joinPath(this.project.directory, relativePath);
-    if (await exists(path)) throw new Error(`A notebook already exists at ${path}`);
-    await mkdir(dirname(path), { recursive: true });
-    await writeTextFile(path, notebookToml(title, ["index.md"]));
-    await writeTextFile(joinPath(dirname(path), "index.md"), `# ${title}\n`);
+    if (await this.store.exists(path)) throw new Error(`A notebook already exists at ${path}`);
+    await this.store.mkdir(dirname(path), { recursive: true });
+    await this.store.writeText(path, notebookToml(title, ["index.md"]));
+    await this.store.writeText(joinPath(dirname(path), "index.md"), `# ${title}\n`);
     this.project.notebooks.push(relativePath);
-    await writeTextFile(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins));
+    await this.store.writeText(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins));
     this.notebooks.set(path, { path, relativePath, title, notes: ["index.md"], plugins: [] });
     return this.selectNotebook(path);
   }
@@ -291,10 +290,10 @@ export class ProjectManager {
     if (!notebook) throw new Error("Select a notebook first");
     const filename = `${slug(title, "note")}.md`;
     const path = joinPath(dirname(notebook.path), filename);
-    if (await exists(path)) throw new Error(`A note already exists at ${path}`);
-    await writeTextFile(path, `# ${title}\n`);
+    if (await this.store.exists(path)) throw new Error(`A note already exists at ${path}`);
+    await this.store.writeText(path, `# ${title}\n`);
     notebook.notes.push(filename);
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     return this.selectNote(path);
   }
 
@@ -304,10 +303,10 @@ export class ProjectManager {
     const oldName = path.slice(path.lastIndexOf("/") + 1);
     const newName = `${slug(title, "note")}.md`;
     const newPath = joinPath(dirname(path), newName);
-    if (newPath !== path && await exists(newPath)) throw new Error(`A note already exists at ${newPath}`);
-    if (newPath !== path) await rename(path, newPath);
+    if (newPath !== path && await this.store.exists(newPath)) throw new Error(`A note already exists at ${newPath}`);
+    if (newPath !== path) await this.store.rename(path, newPath);
     notebook.notes = notebook.notes.map((note) => note === oldName ? newName : note);
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     if (this.currentNotePath === path) this.currentNotePath = newPath;
     return this.selectNote(newPath);
   }
@@ -316,7 +315,7 @@ export class ProjectManager {
     const notebook = this.notebooks.get(path);
     if (!notebook) throw new Error("Notebook does not belong to this project");
     notebook.title = title;
-    await writeTextFile(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
     return this.selectNotebook(path);
   }
 
@@ -324,7 +323,7 @@ export class ProjectManager {
     if (!this.project) throw new Error("Open a project first");
     if (!["notebook", "project"].includes(scope)) throw new Error("Quick export can target a notebook or project");
     this.project.quickExportScope = scope;
-    await writeTextFile(
+    await this.store.writeText(
       this.project.path,
       projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins),
     );
@@ -342,7 +341,7 @@ export class ProjectManager {
     const filename = path.split("/").at(-1);
     const remainingNotes = notebook.notes.filter((note) => note !== filename);
     notebook.notes = remainingNotes;
-    await writeTextFile(notebook.path, notebookToml(notebook.title, remainingNotes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, remainingNotes, notebook.plugins));
     if (this.currentNotePath === path) {
       return this.selectNote(joinPath(dirname(notebook.path), remainingNotes[0]));
     }

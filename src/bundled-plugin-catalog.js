@@ -9,7 +9,7 @@ import { PluginCatalog } from "../../rix/src/index.js";
 import { installBrowserApproxMathPlugin } from "../../rix/examples/approx-math/approx-math-browser-plugin.js";
 
 const approxMathMetadata = {
-  id: "approx-math-js",
+  id: "float",
   description: "JavaScript IEEE-754 Float conversion and optional approximate math.",
   kind: "host",
   mount: "float",
@@ -22,9 +22,9 @@ const approxMathMetadata = {
 export function createNotebookBundledPluginCatalog() {
   const catalog = new PluginCatalog();
   catalog.addMetadata(approxMathMetadata, {
-    sourcePath: "bundled:approx-math-js",
+    sourcePath: "bundled:float",
     kind: "host",
   });
-  catalog.registerInstaller("approx-math-js", installBrowserApproxMathPlugin);
+  catalog.registerInstaller("float", installBrowserApproxMathPlugin);
   return catalog;
 }

@@ -34,6 +34,8 @@ import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js"
 import { clonePluginCatalog, configuredPluginIds, createProjectPluginCatalog } from "./plugin-catalog.js";
 import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
+import { createRixNotebookEngine } from "./notebook-web/rix-engine.js";
+import { createTauriDocumentStore } from "./tauri-document-store.js";
 import "./styles.css";
 
 const editorHost = document.querySelector("#markdown-editor");
@@ -96,7 +98,10 @@ const setQuickExport = document.querySelector("#set-quick-export");
 const appNotice = document.querySelector("#app-notice");
 const appNoticeMessage = document.querySelector("#app-notice-message");
 const closeAppNoticeButton = document.querySelector("#close-app-notice");
-const projects = new ProjectManager();
+// Native shell owns Tauri.  The notebook engine and project schema only see
+// their explicit adapters, which also lets the web workbench run elsewhere.
+const documentStore = createTauriDocumentStore();
+const projects = new ProjectManager(documentStore);
 let latestRuns = [];
 let activeRightPane = "results";
 let previewMode = "live";
@@ -116,6 +121,7 @@ let folderWorkspace = null;
 let helpCatalog = null;
 let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
 let configuredPlugins = [];
+const rixEngine = createRixNotebookEngine({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
 let staticPreviewObjectUrls = [];
 const sliderOverrides = new Map();
 
@@ -907,68 +913,12 @@ function replaceInlineExpressions(source, inlineRuns) {
 }
 
 function executeDocument(source, options = {}) {
-  const document = parseNotebookDocument(source);
-  const { cells, inlines } = document;
-  const runtime = makeNotebookRuntime(options.sliderOverrides || sliderOverrides, options);
-  const runs = new Array(cells.length);
-  const inlineRuns = [];
-  const outputStatements = [];
-
-  for (const event of document.nodes) {
-    if (event.type === "cell") {
-      const cell = event.value;
-      try {
-        runs[cell.index] = executeCell(cell, runtime);
-      } catch (error) {
-        runs[cell.index] = {
-          metadata: cell.metadata,
-          statements: [{
-            line: cell.codeLine,
-            code: cell.code.trim(),
-            content: error instanceof Error ? error.message : String(error),
-            kind: "error",
-            position: cell.start,
-          }],
-        };
-      }
-      outputStatements.push(...runs[cell.index].statements);
-      continue;
-    }
-    const inline = event.value;
-    try {
-      const inlineRun = executeInlineExpression(inline, runtime);
-      inlineRuns.push(inlineRun);
-      outputStatements.push(inlineRun.statement);
-    } catch (error) {
-      const content = error instanceof Error ? error.message : String(error);
-      const inlineRun = {
-        start: inline.start,
-        end: inline.end,
-        replacement: `RiX error: ${content}`,
-        statement: {
-          line: inline.line,
-          code: `@{${inline.expression}}`,
-          content,
-          kind: "error",
-          label: "Inline RiX",
-          position: inline.start,
-        },
-      };
-      inlineRuns.push(inlineRun);
-      outputStatements.push(inlineRun.statement);
-    }
-  }
-
-  return {
-    document,
-    cells,
-    inlineRuns,
-    runs,
-    outputStatements: outputStatements.sort((left, right) => left.position - right.position),
-    sliders: runtime.sliders,
-    renderedSource: replaceInlineExpressions(source, inlineRuns),
-    staticRenderedSource: options.mode === "static" ? renderStaticDocument(document, runs, inlineRuns) : null,
-  };
+  return rixEngine.executeDocument(source, {
+    ...options,
+    sliderOverrides: options.sliderOverrides || sliderOverrides,
+    pluginCatalog: options.pluginCatalog || pluginCatalogTemplate,
+    plugins: options.plugins || configuredPlugins,
+  });
 }
 
 function escapeMarkdownCell(value) {
@@ -2067,10 +2017,12 @@ async function refreshPluginCatalog() {
   if (!projects.isOpen) {
     pluginCatalogTemplate = createNotebookBundledPluginCatalog();
     configuredPlugins = [];
+    rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
     return;
   }
   pluginCatalogTemplate = await createProjectPluginCatalog(projects.project.directory);
   configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook);
+  rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
 }
 
 function pathDirectoryForFile(path) {

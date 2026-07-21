@@ -5,6 +5,29 @@ executable mathematical documents. The native Tauri application manages the
 window and, later, projects and files; the bundled web application provides the
 editing and document-rendering experience.
 
+## Architecture boundaries
+
+The app now has an explicit reusable browser core rather than treating the
+Tauri entry point as the notebook implementation:
+
+```text
+native shell (menus, windows, Git, dialogs)
+                 │
+         Tauri DocumentStore
+                 │
+notebook-web (CodeMirror / Markdown / KaTeX surface)
+                 │
+      NotebookEngine (RiX adapter today)
+```
+
+`src/notebook-web/` contains no Tauri imports. Its RiX adapter parses the
+Markdown document model, runs the linear runtime, supplies inline values and
+sliders, and creates static publication output. `src/tauri-document-store.js`
+is the desktop adapter for the deliberately small storage contract; the project
+schema manager consumes that contract rather than Tauri APIs. This makes a
+hosted or documentation-site editor an adapter exercise rather than a fork of
+the notebook runtime. See [the web-core guide](src/notebook-web/README.md).
+
 ## Current milestone: Hello Markdown
 
 This initial application opens a native macOS window with a CodeMirror 6
@@ -75,13 +98,13 @@ Enable known plugins for every notebook in a project with `project.toml`, or
 only for one notebook with its `notebook.toml`:
 
 ```toml
-plugins = ["approx-math-js", "my-rix-plugin"]
+plugins = ["float", "my-rix-plugin"]
 ```
 
 The installed approximate-math plugin supplies `.float(x)`,
 `.float.Interval(x)`, and the other approximate operations. It is bundled with
-the app but disabled by default; put `"approx-math-js"` in either list or run
-`.Plugin.Load("approx-math-js")` in RiX.
+the app but disabled by default; put `"float"` in either list or run
+`.Plugin.Load("float")` in RiX.
 
 The preview renders `$inline$`, `$$display$$`, `\\(inline\\)`, and
 `\\[display\\]` mathematics with KaTeX. Relative Markdown image paths resolve
