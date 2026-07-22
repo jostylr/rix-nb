@@ -164,7 +164,14 @@ button:focus-visible {
   padding: 0.28rem 0.42rem;
   border-left-color: rgb(255 255 255 / 28%);
   border-radius: 0 6px 6px 0;
-  vertical-align: baseline;
+  vertical-align: text-top;
+}
+
+.button-chevron {
+  display: inline-block;
+  vertical-align: text-top;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 .open-recent-menu {
