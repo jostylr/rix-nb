@@ -11,6 +11,8 @@
     "dev:web": "bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
     "build": "tauri build",
     "build:web": "bun run sync:help && bun run build:live-runtime && vite build",
+    "dev:browser": "vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
+    "build:browser": "vite build --config vite.browser.config.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -28,6 +28,22 @@ schema manager consumes that contract rather than Tauri APIs. This makes a
 hosted or documentation-site editor an adapter exercise rather than a fork of
 the notebook runtime. See [the web-core guide](src/notebook-web/README.md).
 
+### Browser single-file prototype
+
+The browser host is now usable without Tauri. It opens a single Markdown file,
+uses the shared editor/RiX runtime, and saves by downloading the edited file.
+Optional local recovery copies are stored only in the browser through IndexedDB;
+they are clearly opt-in, can be removed from **Recent**, and should not be
+treated as durable storage.
+
+```sh
+cd rix-nb
+bun run dev:browser
+```
+
+Open the printed `web.html` URL. ZIP projects and the virtual project sidebar
+are intentionally the next phase, after adding the browser ZIP dependency.
+
 ## Current milestone: Hello Markdown
 
 This initial application opens a native macOS window with a CodeMirror 6

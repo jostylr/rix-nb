@@ -1,0 +1,12 @@
+.web-app-shell { min-width: 760px; }
+.web-persistence-notice { display: flex; gap: 1rem; align-items: baseline; padding: .5rem 1rem; font-size: .82rem; color: var(--muted-ink, #56606e); background: #f7f5ef; border-bottom: 1px solid #dedbd1; }
+.web-persistence-notice label { color: var(--ink, #172033); font-weight: 650; white-space: nowrap; }
+.web-app-shell .workspace { grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); }
+.web-app-shell .editor-pane { grid-column: auto; }
+.web-app-shell .document-pane { grid-column: auto; min-width: 0; }
+.web-app-shell .editor-heading { justify-content: flex-start; }
+.recent-list { display: grid; gap: .5rem; margin-top: 1rem; max-height: 50vh; overflow: auto; }
+.recent-item { display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center; padding: .6rem; border: 1px solid #dedbd1; border-radius: .45rem; }
+.recent-item p { margin: .15rem 0 0; color: #56606e; font-size: .8rem; }
+.recent-actions { display: flex; gap: .35rem; }
+@media (max-width: 900px) { .web-app-shell { min-width: 0; } .web-app-shell .workspace { display: block; overflow: auto; } .web-app-shell .pane, .web-app-shell .document-pane { min-height: 46vh; } .web-persistence-notice { align-items: flex-start; flex-direction: column; gap: .2rem; } }
