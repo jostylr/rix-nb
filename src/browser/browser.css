@@ -1,12 +1,23 @@
 .web-app-shell { min-width: 760px; }
-.web-persistence-notice { display: flex; gap: 1rem; align-items: baseline; padding: .5rem 1rem; font-size: .82rem; color: var(--muted-ink, #56606e); background: #f7f5ef; border-bottom: 1px solid #dedbd1; }
-.web-persistence-notice label { color: var(--ink, #172033); font-weight: 650; white-space: nowrap; }
-.web-app-shell .workspace { grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); }
+.web-app-shell .workspace { grid-template-columns: minmax(360px, var(--editor-pane-width, 1fr)) 8px minmax(360px, 1fr); }
+.web-app-shell .workspace.editor-collapsed { grid-template-columns: minmax(0, 0) 8px minmax(0, 1fr); }
+.web-app-shell .workspace.document-collapsed { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 0); }
 .web-app-shell .editor-pane { grid-column: auto; }
 .web-app-shell .document-pane { grid-column: auto; min-width: 0; }
 .web-app-shell .editor-heading { justify-content: flex-start; }
+.web-app-shell #open-markdown { border-radius: 6px 0 0 6px; }
+.web-app-shell .open-recent-button { padding-block: 0.28rem; }
 .recent-list { display: grid; gap: .5rem; margin-top: 1rem; max-height: 50vh; overflow: auto; }
 .recent-item { display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center; padding: .6rem; border: 1px solid #dedbd1; border-radius: .45rem; }
 .recent-item p { margin: .15rem 0 0; color: #56606e; font-size: .8rem; }
 .recent-actions { display: flex; gap: .35rem; }
-@media (max-width: 900px) { .web-app-shell { min-width: 0; } .web-app-shell .workspace { display: block; overflow: auto; } .web-app-shell .pane, .web-app-shell .document-pane { min-height: 46vh; } .web-persistence-notice { align-items: flex-start; flex-direction: column; gap: .2rem; } }
+.save-control { position: relative; display: flex; align-items: baseline; }
+.save-control > button { border-radius: 0; }
+.save-control > button:first-child { border-radius: 6px 0 0 6px; }
+.save-control > button:nth-child(2) { min-width: 1.8rem; padding-inline: .35rem; border-radius: 0 6px 6px 0; }
+.save-control > button:nth-child(2) { vertical-align: baseline; }
+.save-menu { position: absolute; z-index: 20; top: calc(100% + .3rem); right: 0; width: 18rem; margin: 0; padding: .45rem; color: #202124; background: #fffefa; border: 1px solid #d8d4ca; border-radius: .4rem; box-shadow: 0 8px 20px rgb(20 30 48 / .17); }
+.save-menu button { width: 100%; text-align: left; }
+.save-menu label { display: block; margin: .7rem .25rem .35rem; font-size: .8rem; font-weight: 600; }
+.save-menu p { margin: 0 .25rem .25rem; color: #67645e; font-size: .74rem; line-height: 1.35; }
+@media (max-width: 900px) { .web-app-shell { min-width: 0; } .web-app-shell .workspace { display: block; overflow: auto; } .web-app-shell .pane, .web-app-shell .document-pane { min-height: 46vh; } }

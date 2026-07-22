@@ -41,8 +41,11 @@ cd rix-nb
 bun run dev:browser
 ```
 
-Open the printed `web.html` URL. ZIP projects and the virtual project sidebar
+Open the printed local URL. ZIP projects and the virtual project sidebar
 are intentionally the next phase, after adding the browser ZIP dependency.
+`bun run dev:web` is an alias for this browser host. Use `bun run dev` for the
+native Tauri app; `dev:tauri-webview` is only for inspecting its frontend in a
+plain browser and cannot open files because it has no Tauri bridge.
 
 ## Current milestone: Hello Markdown
 

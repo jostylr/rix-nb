@@ -55,6 +55,7 @@ const previewPane = document.querySelector("#preview-pane");
 const runButton = document.querySelector("#run-notebook");
 const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
 const togglePreviewModeButton = document.querySelector("#toggle-preview-mode");
+const rightPaneTitle = document.querySelector("#right-pane-title");
 const status = document.querySelector("#document-status");
 const workspaceTitle = document.querySelector("#workspace-title");
 const workspace = document.querySelector(".workspace");
@@ -65,6 +66,7 @@ const openRecentButton = document.querySelector("#open-recent");
 const openRecentMenu = document.querySelector("#open-recent-menu");
 const toggleSidebarButton = document.querySelector("#toggle-sidebar");
 const saveNoteButton = document.querySelector("#save-note");
+const exportNotebookButton = document.querySelector("#export-notebook");
 const newNotebookButton = document.querySelector("#new-notebook");
 const newFolderButton = document.querySelector("#new-folder");
 const newNoteButton = document.querySelector("#new-note");
@@ -1172,6 +1174,8 @@ function setRightPane(pane) {
   const showPreview = pane === "preview";
   previewPane.hidden = !showPreview;
   outputPane.hidden = showPreview;
+  rightPaneTitle.textContent = showPreview ? "Preview" : "RiX results";
+  togglePreviewModeButton.hidden = !showPreview;
   updatePreviewModeControl();
   toggleRightPaneButton.textContent = showPreview ? "Show results" : "Show preview";
   toggleRightPaneButton.title = showPreview
@@ -2358,6 +2362,7 @@ openRecentButton.addEventListener("click", (event) => {
   else closeOpenRecentMenu();
 });
 saveNoteButton.addEventListener("click", () => runProjectAction(saveNote));
+exportNotebookButton.addEventListener("click", () => openExportDialog());
 newNotebookButton.addEventListener("click", () => runProjectAction(async () => {
   const title = await requestName({ title: "New notebook", label: "Notebook title", value: "Notebook" });
   if (!title) return;
@@ -2376,6 +2381,7 @@ newNoteButton.addEventListener("click", () => runProjectAction(async () => {
   await loadNote(note);
 }));
 exportScopeSelect.addEventListener("change", updateExportNotebookChoice);
+exportDialog.querySelector("button[value=cancel]").addEventListener("click", () => exportDialog.close("cancel"));
 exportDialog.addEventListener("close", () => {
   if (exportDialog.returnValue !== "confirm") return;
   const scope = exportScopeSelect.value;

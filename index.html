@@ -23,8 +23,8 @@
             <button id="open-recent" class="open-recent-button" type="button" title="Open recent…" aria-label="Open recent" aria-expanded="false">⌄</button>
             <menu id="open-recent-menu" class="open-recent-menu" hidden></menu>
           </div>
-          <button id="toggle-right-pane" type="button" title="Show rendered preview (⌘P or ⌘⇧P)" aria-pressed="false">Show preview</button>
-          <button id="run-notebook" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run</button>
+          <button id="save-note" class="file-action" type="button" title="Save note (⌘S)" disabled>Save</button>
+          <button id="export-notebook" class="file-action" type="button" title="Export (⌘E)">Export</button>
         </div>
       </header>
 
@@ -43,7 +43,6 @@
         <section class="pane editor-pane" aria-label="Markdown editor">
           <div class="editor-heading">
             <span id="editor-kind" class="pane-title">Markdown</span>
-            <button id="save-note" type="button" title="Save note (⌘S)" disabled>Save</button>
           </div>
           <div id="markdown-editor"># Welcome to RiX Notebook
 
@@ -82,20 +81,23 @@ perimeter;
             <p class="slider-controls-title">Controls</p>
             <div id="slider-control-list"></div>
           </section>
-
-          <article id="preview-pane" class="pane preview-pane" aria-label="Rendered Markdown preview" hidden>
-            <div class="preview-heading">
-              <span class="pane-title">Preview</span>
-              <button id="toggle-preview-mode" class="preview-mode-toggle" type="button" title="Switch to static export preview" aria-label="Live preview mode; switch to static export preview" aria-pressed="false">
+          <div class="document-heading">
+            <div class="document-actions">
+              <button id="toggle-right-pane" class="notebook-action" type="button" title="Show rendered preview (⌘P or ⌘⇧P)" aria-pressed="false">Show preview</button>
+              <button id="run-notebook" class="notebook-action" type="button" title="Run notebook (⌘↵)" aria-keyshortcuts="Meta+Enter Control+Enter">Run</button>
+              <button id="toggle-preview-mode" class="preview-mode-toggle" type="button" title="Switch to static export preview" aria-label="Live preview mode; switch to static export preview" aria-pressed="false" hidden>
                 <span class="preview-mode-option preview-mode-live">Live</span>
                 <span class="preview-mode-option preview-mode-static">Static</span>
               </button>
             </div>
+            <span id="right-pane-title" class="pane-title">RiX results</span>
+          </div>
+
+          <article id="preview-pane" class="pane preview-pane" aria-label="Rendered Markdown preview" hidden>
             <div id="markdown-preview" class="markdown-body"></div>
           </article>
 
           <aside id="output-pane" class="output-pane" aria-label="RiX cell results">
-            <span class="pane-title">RiX results</span>
             <div id="rix-output" class="rix-output">
               <p class="output-placeholder">Run the notebook to evaluate RiX cells.</p>
             </div>

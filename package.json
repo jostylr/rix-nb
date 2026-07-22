@@ -8,10 +8,11 @@
     "dev": "tauri dev",
     "sync:help": "bun scripts/sync-help.mjs",
     "build:live-runtime": "vite build --config vite.live.config.js",
-    "dev:web": "bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
+    "dev:web": "vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
+    "dev:tauri-webview": "bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
     "build": "tauri build",
     "build:web": "bun run sync:help && bun run build:live-runtime && vite build",
-    "dev:browser": "vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
+    "dev:browser": "bun run dev:web",
     "build:browser": "vite build --config vite.browser.config.js",
     "preview": "vite preview"
   },

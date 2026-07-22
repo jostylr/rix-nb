@@ -1,6 +1,7 @@
 import { exists, readDir, readTextFile } from "@tauri-apps/plugin-fs";
-import { PluginCatalog, readPluginHeader } from "../../rix/src/index.js";
+import { readPluginHeader } from "../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
+export { clonePluginCatalog } from "./plugin-catalog-core.js";
 
 function joinPath(...parts) {
   return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
@@ -42,20 +43,6 @@ export async function createProjectPluginCatalog(projectDirectory) {
   const catalog = createNotebookBundledPluginCatalog();
   const pluginDirectory = joinPath(projectDirectory, "plugins");
   if (await exists(pluginDirectory)) await scanPluginDirectory(catalog, pluginDirectory);
-  return catalog;
-}
-
-/** A catalog is stateful after loading, so every notebook run receives a fresh copy. */
-export function clonePluginCatalog(template) {
-  const catalog = new PluginCatalog();
-  for (const entry of template.list()) {
-    catalog.addMetadata(entry, {
-      sourcePath: entry.sourcePath,
-      source: entry.source,
-      kind: entry.kind,
-    });
-  }
-  for (const [id, installer] of template.installers) catalog.registerInstaller(id, installer);
   return catalog;
 }
 

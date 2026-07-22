@@ -13,7 +13,7 @@ import {
   renderOutputHtml,
   tokenize,
 } from "../../../rix/src/index.js";
-import { clonePluginCatalog } from "../plugin-catalog.js";
+import { clonePluginCatalog } from "../plugin-catalog-core.js";
 import { gridLatex } from "../output-latex.js";
 import { assertNotebookEngine } from "./contracts.js";
 

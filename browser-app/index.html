@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RiX Notebook Web</title>
+  </head>
+  <body>
+    <main class="app-shell web-app-shell">
+      <header class="toolbar">
+        <div class="toolbar-title-group"><div><p class="eyebrow">RiX Notebook Web</p><h1 id="workspace-title">Untitled Markdown</h1></div></div>
+        <div class="toolbar-actions">
+          <p id="document-status" class="document-status" aria-live="polite">In browser memory</p>
+          <button id="new-markdown" type="button">New</button>
+          <div class="open-control-group"><button id="open-markdown" type="button">Open</button><button id="recent-notebooks" class="open-recent-button" type="button" title="Open recent local copy" aria-label="Open recent local copy">⌄</button></div>
+          <div class="save-control"><button id="download-markdown" class="file-action" type="button">Save</button><button id="save-options" class="file-action" type="button" aria-label="Save options" aria-expanded="false">⌄</button><menu id="save-menu" class="save-menu" hidden><button id="save-as-markdown" type="button">Save Markdown as…</button><button id="download-markdown-copy" type="button">Download Markdown</button><label><input id="keep-local-copy" type="checkbox" /> Keep a local recovery copy in this browser</label><p>Local-only storage may be cleared by the browser.</p></menu></div><button id="export-notebook" class="file-action" type="button">Export</button>
+        </div>
+      </header>
+      <section class="workspace" aria-label="RiX Markdown workspace">
+        <section class="pane editor-pane" aria-label="Markdown editor"><div class="editor-heading"><span class="pane-title">Markdown</span></div><div id="markdown-editor"></div></section>
+        <div id="main-resizer" class="main-resizer" role="separator" aria-label="Resize editor and document panes" aria-orientation="vertical" tabindex="0"><div class="divider-controls" aria-label="Pane layout controls"><button id="collapse-document-pane" class="divider-control" type="button" title="Collapse preview and results">→</button><button id="center-panes" class="divider-control divider-drag-control" type="button" title="Center panes; drag to resize">↔</button><button id="collapse-editor-pane" class="divider-control" type="button" title="Collapse editor">←</button></div></div>
+        <section class="document-pane" aria-label="Rendered notebook">
+          <section id="slider-controls" class="slider-controls" aria-label="RiX controls" hidden><p class="slider-controls-title">Controls</p><div id="slider-control-list"></div></section>
+          <div class="document-heading"><div class="document-actions"><button id="toggle-right-pane" class="notebook-action" type="button">Show preview</button><button id="run-notebook" class="notebook-action" type="button">Run</button></div><span id="right-pane-title" class="pane-title">RiX results</span></div>
+          <article id="preview-pane" class="pane preview-pane" aria-label="Rendered Markdown preview" hidden><div id="markdown-preview" class="markdown-body"></div></article>
+          <aside id="output-pane" class="output-pane" aria-label="RiX cell results"><div id="rix-output" class="rix-output"></div></aside>
+        </section>
+      </section>
+    </main>
+    <input id="markdown-file" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+    <dialog id="recent-dialog" class="app-dialog"><div class="help-header"><div><p class="eyebrow">This browser</p><h2>Recent local copies</h2></div><button id="close-recent" class="secondary-button" type="button">Close</button></div><p class="dialog-hint">Only files you explicitly opted to keep are listed here.</p><div id="recent-list" class="recent-list"></div></dialog>
+    <dialog id="export-dialog" class="app-dialog"><form method="dialog"><h2>Export</h2><p class="dialog-hint">The browser single-file prototype exports rendered static Markdown. ZIP-based HTML and Quarto project exports arrive with ZIP project support.</p><div class="dialog-actions"><button value="cancel" class="secondary-button" type="button">Cancel</button><button value="confirm" type="submit">Download rendered Markdown</button></div></form></dialog>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

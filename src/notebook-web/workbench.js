@@ -21,7 +21,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
   const host = createNotebookHost(callbacks);
   const {
     editorHost, preview, output, previewPane, outputPane, sliderControls,
-    sliderControlList, runButton, toggleRightPaneButton, status,
+    sliderControlList, runButton, toggleRightPaneButton, status, rightPaneTitle,
   } = elements;
   const renderer = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const defaultFence = renderer.renderer.rules.fence;
@@ -98,6 +98,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     rightPane = next;
     if (previewPane) previewPane.hidden = next !== "preview";
     if (outputPane) outputPane.hidden = next === "preview";
+    if (rightPaneTitle) rightPaneTitle.textContent = next === "preview" ? "Preview" : "RiX results";
     if (toggleRightPaneButton) toggleRightPaneButton.textContent = next === "preview" ? "Show results" : "Show preview";
   }
   const view = new EditorView({
