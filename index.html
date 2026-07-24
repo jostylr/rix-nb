@@ -138,6 +138,40 @@ perimeter;
       </form>
     </dialog>
 
+    <dialog id="plugin-settings-dialog" class="app-dialog plugin-settings-dialog">
+      <form method="dialog">
+        <h2>Plugin settings</h2>
+        <label for="plugin-directory-list">Plugin directories</label>
+        <div id="plugin-directory-list" class="plugin-directory-list" aria-live="polite"></div>
+        <button id="add-plugin-directory" type="button" class="secondary-button">Add folder…</button>
+        <label for="auto-load-plugins">Automatically load these plugin IDs</label>
+        <input id="auto-load-plugins" type="text" placeholder="float, my-plugin" />
+        <p class="dialog-hint">Comma-separated IDs. Each must be found in a bundled or configured plugin directory.</p>
+        <fieldset>
+          <legend>JavaScript plugins</legend>
+          <label><input id="allow-javascript-plugins" type="checkbox" /> Allow JavaScript plugins without a confirmation sheet</label>
+        </fieldset>
+        <p class="dialog-hint">RiX plugins are plain RiX source. JavaScript plugins can run arbitrary code with the access granted to this app. Scanning a folder only reads plugin metadata; it never runs a plugin.</p>
+        <div class="dialog-actions">
+          <button value="cancel" type="button" class="secondary-button">Cancel</button>
+          <button value="confirm" type="submit">Save settings</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="javascript-plugin-dialog" class="app-dialog">
+      <form method="dialog">
+        <h2>Load JavaScript plugin?</h2>
+        <p id="javascript-plugin-message"></p>
+        <p class="dialog-hint">Only load code you trust. “Always allow” remembers this exact file path; moving the file requires a new decision.</p>
+        <div class="dialog-actions">
+          <button value="cancel" type="button" class="secondary-button">Cancel</button>
+          <button value="once" type="submit">Load for this session</button>
+          <button value="always" type="submit">Always allow</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="export-dialog" class="app-dialog export-dialog">
       <form method="dialog">
         <h2>Export</h2>

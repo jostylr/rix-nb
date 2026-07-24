@@ -2,7 +2,7 @@ import { exists, readDir, readTextFile } from "@tauri-apps/plugin-fs";
 import { readPluginHeader } from "../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 export { clonePluginCatalog } from "./plugin-catalog-core.js";
-export { pluginTutorialIdFromPath } from "./plugin-catalog-core.js";
+export { configuredPluginDirectories, pluginTutorialIdFromPath, requestedPluginIds } from "./plugin-catalog-core.js";
 
 function joinPath(...parts) {
   return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
@@ -16,6 +16,7 @@ function pluginKind(name) {
 
 async function scanPluginDirectory(catalog, directory) {
   for (const entry of await readDir(directory)) {
+    if (entry.name === ".git" || entry.name === "node_modules") continue;
     const path = joinPath(directory, entry.name);
     if (entry.isDirectory) {
       await scanPluginDirectory(catalog, path);
@@ -40,10 +41,11 @@ async function scanPluginDirectory(catalog, directory) {
  * plugin deliberately has no installer: executing it requires an explicit
  * app-bundle approval in bundled-plugin-catalog.js.
  */
-export async function createProjectPluginCatalog(projectDirectory) {
+export async function createProjectPluginCatalog(pluginDirectories = []) {
   const catalog = createNotebookBundledPluginCatalog();
-  const pluginDirectory = joinPath(projectDirectory, "plugins");
-  if (await exists(pluginDirectory)) await scanPluginDirectory(catalog, pluginDirectory);
+  for (const directory of pluginDirectories) {
+    if (await exists(directory)) await scanPluginDirectory(catalog, directory);
+  }
   return catalog;
 }
 

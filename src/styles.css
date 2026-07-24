@@ -739,6 +739,32 @@ body.is-resizing {
   line-height: 1.35;
 }
 
+.plugin-settings-dialog { max-width: min(34rem, calc(100vw - 2rem)); }
+
+.plugin-directory-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.65rem;
+}
+
+.plugin-directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.plugin-directory-row code {
+  overflow: hidden;
+  padding: 0.42rem 0.5rem;
+  color: #37485f;
+  background: #f3f1eb;
+  border: 1px solid #d6d2c9;
+  border-radius: 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-notice {
   position: fixed;
   right: 1rem;

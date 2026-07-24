@@ -27,6 +27,30 @@ struct WindowGeometry {
     y: i32,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginSettings {
+    #[serde(default)]
+    plugin_directories: Vec<String>,
+    #[serde(default)]
+    allow_javascript_plugins: bool,
+    #[serde(default)]
+    auto_load_plugins: Vec<String>,
+    #[serde(default)]
+    approved_javascript_plugins: Vec<String>,
+}
+
+impl Default for PluginSettings {
+    fn default() -> Self {
+        Self {
+            plugin_directories: Vec::new(),
+            allow_javascript_plugins: false,
+            auto_load_plugins: Vec::new(),
+            approved_javascript_plugins: Vec::new(),
+        }
+    }
+}
+
 fn default_recent_kind() -> String {
     "project".to_string()
 }
@@ -47,6 +71,62 @@ fn window_geometry_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, Strin
         .map_err(|error| format!("Could not locate application data: {error}"))?;
     fs::create_dir_all(&directory).map_err(|error| format!("Could not create application data folder: {error}"))?;
     Ok(directory.join("window-geometry.json"))
+}
+
+fn plugin_settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not locate application data: {error}"))?;
+    fs::create_dir_all(&directory).map_err(|error| format!("Could not create application data folder: {error}"))?;
+    Ok(directory.join("plugin-settings.json"))
+}
+
+fn allow_plugin_directory_access<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<(), String> {
+    let directory = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("Could not access plugin directory: {error}"))?;
+    if !directory.is_dir() {
+        return Err("A plugin location must be a folder".to_string());
+    }
+    app.fs_scope()
+        .allow_directory(&directory, true)
+        .map_err(|error| format!("Could not grant plugin file access: {error}"))?;
+    app.asset_protocol_scope()
+        .allow_directory(&directory, true)
+        .map_err(|error| format!("Could not grant plugin asset access: {error}"))?;
+    Ok(())
+}
+
+fn load_plugin_settings<R: Runtime>(app: &AppHandle<R>) -> Result<PluginSettings, String> {
+    let path = plugin_settings_path(app)?;
+    if !path.exists() {
+        return Ok(PluginSettings::default());
+    }
+    let source = fs::read_to_string(path).map_err(|error| format!("Could not read plugin settings: {error}"))?;
+    serde_json::from_str(&source).map_err(|error| format!("Could not read plugin settings: {error}"))
+}
+
+#[tauri::command]
+fn get_plugin_settings(app: AppHandle) -> Result<PluginSettings, String> {
+    let settings = load_plugin_settings(&app)?;
+    for directory in &settings.plugin_directories {
+        // Keep the preferences screen usable if a removable drive or an old
+        // development checkout is gone; saving validates every retained path.
+        if Path::new(directory).is_dir() {
+            allow_plugin_directory_access(&app, directory)?;
+        }
+    }
+    Ok(settings)
+}
+
+#[tauri::command]
+fn save_plugin_settings(app: AppHandle, settings: PluginSettings) -> Result<(), String> {
+    for directory in &settings.plugin_directories {
+        allow_plugin_directory_access(&app, directory)?;
+    }
+    let source = serde_json::to_string(&settings).map_err(|error| format!("Could not save plugin settings: {error}"))?;
+    fs::write(plugin_settings_path(&app)?, source).map_err(|error| format!("Could not save plugin settings: {error}"))
 }
 
 fn restore_window_geometry<R: Runtime>(app: &AppHandle<R>) {
@@ -177,7 +257,9 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&MenuItemBuilder::with_id("open-rix-tutorials", "RiX Tutorials").build(app)?)
         .build()?;
     let app_menu = SubmenuBuilder::new(app, "RiX Notebook")
-        .about(None).separator().services().separator().hide().hide_others().show_all().separator().quit().build()?;
+        .about(None).separator()
+        .item(&MenuItemBuilder::with_id("open-plugin-settings", "Settings…").accelerator("CmdOrCtrl+,").build(app)?)
+        .separator().services().separator().hide().hide_others().show_all().separator().quit().build()?;
     MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &window, &help]).build()
 }
 
@@ -286,7 +368,9 @@ pub fn run() {
             record_recent_project,
             record_recent_file,
             get_recent_documents,
-            grant_project_access
+            grant_project_access,
+            get_plugin_settings,
+            save_plugin_settings
         ])
         .setup(|app| {
             let handle = app.handle();

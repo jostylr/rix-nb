@@ -44,8 +44,9 @@ bun run dev:browser
 Open the printed local URL. ZIP projects and the virtual project sidebar
 are intentionally the next phase, after adding the browser ZIP dependency.
 `bun run dev:web` is an alias for this browser host. Use `bun run dev` for the
-native Tauri app; `dev:tauri-webview` is only for inspecting its frontend in a
-plain browser and cannot open files because it has no Tauri bridge.
+native Tauri app. To inspect the native app's frontend in a plain browser, run
+`bun run dev:tauri-webview` and open <http://127.0.0.1:1420>; it cannot open
+files because it has no Tauri bridge.
 
 ## Current milestone: Hello Markdown
 
@@ -114,11 +115,25 @@ The notebook has two deliberately separate plugin locations.
   JavaScript execution requires an explicit bundled-app approval above.
 
 Enable known plugins for every notebook in a project with `project.toml`, or
-only for one notebook with its `notebook.toml`:
+only for one notebook with its `notebook.toml`. `plugin_dirs` is optional and
+is resolved relative to the manifest that declares it; entries from the app’s
+**RiX Notebook → Settings…** are scanned first. The standard `Project/plugins/`
+directory remains available without configuration.
 
 ```toml
+plugin_dirs = ["shared-plugins"]
 plugins = ["float", "my-rix-plugin"]
 ```
+
+Settings also lets a user add machine-local plugin directories, choose
+automatically loaded plugin IDs, and choose whether JavaScript plugins may run
+without confirmation. With that setting off (the default), loading a discovered
+JavaScript plugin presents a sheet with its ID, description, and exact source
+path. **Load for this session** grants the current catalog; **Always allow**
+records that exact path. Plugin scanning never evaluates JavaScript. A plugin
+author can exclude an unfinished entry entirely by putting
+`ignore: true` in its leading YAML frontmatter; ignored files do not appear in
+the catalog or reserve their plugin ID.
 
 The installed approximate-math plugin supplies `.float(x)`,
 `.float.Interval(x)`, and the other approximate operations. It is bundled with

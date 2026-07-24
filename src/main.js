@@ -33,9 +33,11 @@ import { ProjectManager } from "./project.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 import {
   clonePluginCatalog,
+  configuredPluginDirectories,
   configuredPluginIds,
   createProjectPluginCatalog,
   pluginTutorialIdFromPath,
+  requestedPluginIds,
 } from "./plugin-catalog.js";
 import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
@@ -106,6 +108,13 @@ const setQuickExport = document.querySelector("#set-quick-export");
 const appNotice = document.querySelector("#app-notice");
 const appNoticeMessage = document.querySelector("#app-notice-message");
 const closeAppNoticeButton = document.querySelector("#close-app-notice");
+const pluginSettingsDialog = document.querySelector("#plugin-settings-dialog");
+const pluginDirectoryList = document.querySelector("#plugin-directory-list");
+const addPluginDirectoryButton = document.querySelector("#add-plugin-directory");
+const allowJavaScriptPluginsInput = document.querySelector("#allow-javascript-plugins");
+const autoLoadPluginsInput = document.querySelector("#auto-load-plugins");
+const javaScriptPluginDialog = document.querySelector("#javascript-plugin-dialog");
+const javaScriptPluginMessage = document.querySelector("#javascript-plugin-message");
 // Native shell owns Tauri.  The notebook engine and project schema only see
 // their explicit adapters, which also lets the web workbench run elsewhere.
 const documentStore = createTauriDocumentStore();
@@ -130,6 +139,13 @@ let helpCatalog = null;
 let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
 let configuredPlugins = [];
 let tutorialPluginId = null;
+let pluginSettings = {
+  pluginDirectories: [],
+  allowJavascriptPlugins: false,
+  autoLoadPlugins: [],
+  approvedJavascriptPlugins: [],
+};
+let editingPluginSettings = null;
 const rixEngine = createRixNotebookEngine({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
 let staticPreviewObjectUrls = [];
 const sliderOverrides = new Map();
@@ -1127,9 +1143,10 @@ function renderStaticPreview(source) {
   }
 }
 
-function runNotebook() {
+async function runNotebook() {
   window.clearTimeout(liveRunTimer);
   const source = editor.state.doc.toString();
+  await prepareJavaScriptPlugins(source);
   const documentRun = executeDocument(source);
   output.replaceChildren();
 
@@ -1156,7 +1173,7 @@ function runNotebook() {
 
 function scheduleNotebookRun(delay = 300) {
   window.clearTimeout(liveRunTimer);
-  liveRunTimer = window.setTimeout(runNotebook, delay);
+  liveRunTimer = window.setTimeout(() => { runNotebook().catch(showError); }, delay);
 }
 
 function isRunShortcut(event) {
@@ -1168,7 +1185,7 @@ function handleRunShortcut(event) {
   if (!isRunShortcut(event)) return false;
   event.preventDefault();
   event.stopImmediatePropagation();
-  runNotebook();
+  runNotebook().catch(showError);
   return true;
 }
 
@@ -1212,7 +1229,7 @@ function updatePreviewModeControl() {
 function togglePreviewMode() {
   previewMode = previewMode === "live" ? "static" : "live";
   updatePreviewModeControl();
-  runNotebook();
+  runNotebook().catch(showError);
 }
 
 function setStatus(message) {
@@ -1238,7 +1255,7 @@ function setDocument(source) {
   latestRuns = [];
   renderMarkdown(source);
   setPreviewStale(false);
-  runNotebook();
+  runNotebook().catch(showError);
 }
 
 function updateSaveButton() {
@@ -2028,26 +2045,125 @@ async function refreshPluginCatalog() {
   tutorialPluginId = pluginTutorialIdFromPath(activeDocument.path);
   if (!projects.isOpen) {
     pluginCatalogTemplate = createNotebookBundledPluginCatalog();
-    configuredPlugins = tutorialPluginId && pluginCatalogTemplate.info(tutorialPluginId)
-      ? [tutorialPluginId]
-      : [];
+    configuredPlugins = configuredPluginIds(null, null, [
+      ...pluginSettings.autoLoadPlugins,
+      ...(tutorialPluginId && pluginCatalogTemplate.info(tutorialPluginId) ? [tutorialPluginId] : []),
+    ]);
     rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
     reloadPluginsButton.hidden = !(tutorialPluginId || folderWorkspace);
     return;
   }
-  pluginCatalogTemplate = await createProjectPluginCatalog(projects.project.directory);
+  const pluginDirectories = configuredPluginDirectories(projects.project, projects.currentNotebook, pluginSettings);
+  pluginCatalogTemplate = await createProjectPluginCatalog(pluginDirectories);
   const tutorialPlugins = tutorialPluginId && pluginCatalogTemplate.info(tutorialPluginId)
     ? [tutorialPluginId]
     : [];
-  configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook, tutorialPlugins);
+  configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook, [
+    ...pluginSettings.autoLoadPlugins,
+    ...tutorialPlugins,
+  ]);
   rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
   reloadPluginsButton.hidden = false;
+}
+
+function renderPluginDirectories() {
+  const settings = editingPluginSettings || pluginSettings;
+  pluginDirectoryList.replaceChildren();
+  if (!settings.pluginDirectories.length) {
+    const empty = document.createElement("p");
+    empty.className = "dialog-hint";
+    empty.textContent = "No app-wide directories. Project and notebook plugin_dirs still apply.";
+    pluginDirectoryList.append(empty);
+    return;
+  }
+  for (const directory of settings.pluginDirectories) {
+    const row = document.createElement("div");
+    row.className = "plugin-directory-row";
+    const path = document.createElement("code");
+    path.textContent = directory;
+    path.title = directory;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary-button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      settings.pluginDirectories = settings.pluginDirectories.filter((candidate) => candidate !== directory);
+      renderPluginDirectories();
+    });
+    row.append(path, remove);
+    pluginDirectoryList.append(row);
+  }
+}
+
+async function openPluginSettings() {
+  pluginSettings = await invoke("get_plugin_settings");
+  editingPluginSettings = structuredClone(pluginSettings);
+  renderPluginDirectories();
+  allowJavaScriptPluginsInput.checked = editingPluginSettings.allowJavascriptPlugins;
+  autoLoadPluginsInput.value = editingPluginSettings.autoLoadPlugins.join(", ");
+  pluginSettingsDialog.addEventListener("close", () => {
+    if (pluginSettingsDialog.returnValue !== "confirm") {
+      editingPluginSettings = null;
+      return;
+    }
+    runProjectAction(async () => {
+      editingPluginSettings.allowJavascriptPlugins = allowJavaScriptPluginsInput.checked;
+      editingPluginSettings.autoLoadPlugins = [...new Set(autoLoadPluginsInput.value.split(",").map((id) => id.trim()).filter(Boolean))];
+      pluginSettings = editingPluginSettings;
+      editingPluginSettings = null;
+      await invoke("save_plugin_settings", { settings: pluginSettings });
+      await refreshPluginCatalog();
+      await runNotebook();
+      setStatus("Plugin settings saved");
+    });
+  }, { once: true });
+  pluginSettingsDialog.showModal();
+}
+
+function confirmJavaScriptPlugin(metadata) {
+  return new Promise((resolve) => {
+    javaScriptPluginMessage.textContent = `${metadata.id}: ${metadata.description}\n\n${metadata.sourcePath}`;
+    javaScriptPluginDialog.addEventListener("close", () => {
+      resolve(["once", "always"].includes(javaScriptPluginDialog.returnValue) ? javaScriptPluginDialog.returnValue : null);
+    }, { once: true });
+    javaScriptPluginDialog.showModal();
+  });
+}
+
+async function prepareJavaScriptPlugins(source) {
+  const requested = requestedPluginIds(source, configuredPlugins);
+  let settingsChanged = false;
+  for (const id of requested) {
+    const metadata = pluginCatalogTemplate.info(id);
+    if (!metadata || metadata.kind !== "host" || pluginCatalogTemplate.installers.has(id)) continue;
+    const approved = pluginSettings.allowJavascriptPlugins || pluginSettings.approvedJavascriptPlugins.includes(metadata.sourcePath);
+    if (!approved) {
+      const decision = await confirmJavaScriptPlugin(metadata);
+      if (!decision) throw new Error(`JavaScript plugin '${id}' was not loaded`);
+      if (decision === "always") {
+        pluginSettings.approvedJavascriptPlugins = [...new Set([...pluginSettings.approvedJavascriptPlugins, metadata.sourcePath])];
+        settingsChanged = true;
+      }
+    }
+    let module;
+    try {
+      module = await import(/* @vite-ignore */ convertFileSrc(metadata.sourcePath));
+    } catch (error) {
+      throw new Error(`Could not import JavaScript plugin '${id}' from ${metadata.sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const installer = module.install || module.default;
+    if (typeof installer !== "function") {
+      throw new Error(`JavaScript plugin '${id}' must export an install function`);
+    }
+    pluginCatalogTemplate.registerInstaller(id, installer);
+  }
+  if (settingsChanged) await invoke("save_plugin_settings", { settings: pluginSettings });
 }
 
 async function reloadPluginsAndRun() {
   setStatus("Reloading plugins…");
   await refreshPluginCatalog();
-  runNotebook();
+  await runNotebook();
   const suffix = tutorialPluginId
     ? pluginCatalogTemplate.info(tutorialPluginId)
       ? ` · ${tutorialPluginId} enabled`
@@ -2358,8 +2474,15 @@ const editor = new EditorView({
   parent: editorHost,
 });
 
-runButton.addEventListener("click", runNotebook);
+runButton.addEventListener("click", () => runNotebook().catch(showError));
 reloadPluginsButton.addEventListener("click", () => runProjectAction(reloadPluginsAndRun));
+addPluginDirectoryButton.addEventListener("click", () => runProjectAction(async () => {
+  const directory = await openDialog({ directory: true, multiple: false, title: "Add plugin directory" });
+  if (!directory || Array.isArray(directory)) return;
+  const settings = editingPluginSettings || pluginSettings;
+  if (!settings.pluginDirectories.includes(directory)) settings.pluginDirectories.push(directory);
+  renderPluginDirectories();
+}));
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
 togglePreviewModeButton.addEventListener("click", togglePreviewMode);
 collapseDocumentPaneButton.addEventListener("click", collapseDocumentPane);
@@ -2488,6 +2611,7 @@ listen("menu-command", (event) => {
     "new-notebook": () => newNotebookButton.click(),
     "new-note": () => newNoteButton.click(),
     "toggle-right-pane": toggleRightPane,
+    "open-plugin-settings": () => runProjectAction(openPluginSettings),
     "open-notebook-help": () => openHelp("notebook"),
     "open-rix-reference": () => openHelp("rix"),
     "open-rix-tutorials": () => openHelp("tutorials"),
@@ -2560,5 +2684,15 @@ window.addEventListener("keydown", (event) => {
   event.stopImmediatePropagation();
   toggleRightPane();
 }, { capture: true });
-renderMarkdown(initialDocument);
-runNotebook();
+async function initializeNotebook() {
+  try {
+    pluginSettings = await invoke("get_plugin_settings");
+  } catch {
+    // The browser-only development host has no native preference store.
+  }
+  await refreshPluginCatalog();
+  renderMarkdown(initialDocument);
+  await runNotebook();
+}
+
+initializeNotebook().catch(showError);

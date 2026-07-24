@@ -22,12 +22,12 @@ function tomlString(value) {
   return JSON.stringify(value);
 }
 
-function projectToml(title, notebooks, quickExportScope = "project", plugins = []) {
-  return `format_version = 1\ntitle = ${tomlString(title)}\nquick_export_scope = ${tomlString(quickExportScope)}\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotebooks = [${notebooks.map(tomlString).join(", ")}]\n`;
+function projectToml(title, notebooks, quickExportScope = "project", plugins = [], pluginDirectories = []) {
+  return `format_version = 1\ntitle = ${tomlString(title)}\nquick_export_scope = ${tomlString(quickExportScope)}\nplugin_dirs = [${pluginDirectories.map(tomlString).join(", ")}]\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotebooks = [${notebooks.map(tomlString).join(", ")}]\n`;
 }
 
-function notebookToml(title, notes, plugins = []) {
-  return `format_version = 1\ntitle = ${tomlString(title)}\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotes = [${notes.map(tomlString).join(", ")}]\n`;
+function notebookToml(title, notes, plugins = [], pluginDirectories = []) {
+  return `format_version = 1\ntitle = ${tomlString(title)}\nplugin_dirs = [${pluginDirectories.map(tomlString).join(", ")}]\nplugins = [${plugins.map(tomlString).join(", ")}]\nnotes = [${notes.map(tomlString).join(", ")}]\n`;
 }
 
 function readTomlString(source, key) {
@@ -112,6 +112,7 @@ function parseProject(source) {
     notebooks,
     quickExportScope,
     plugins: readTomlStringArray(source, "plugins") || [],
+    pluginDirectories: readTomlStringArray(source, "plugin_dirs") || [],
   };
 }
 
@@ -122,6 +123,7 @@ function parseNotebook(source) {
     title: readTomlString(source, "title") || "Untitled Notebook",
     notes,
     plugins: readTomlStringArray(source, "plugins") || [],
+    pluginDirectories: readTomlStringArray(source, "plugin_dirs") || [],
   };
 }
 
@@ -280,8 +282,8 @@ export class ProjectManager {
     await this.store.writeText(path, notebookToml(title, ["index.md"]));
     await this.store.writeText(joinPath(dirname(path), "index.md"), `# ${title}\n`);
     this.project.notebooks.push(relativePath);
-    await this.store.writeText(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins));
-    this.notebooks.set(path, { path, relativePath, title, notes: ["index.md"], plugins: [] });
+    await this.store.writeText(this.project.path, projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins, this.project.pluginDirectories));
+    this.notebooks.set(path, { path, relativePath, title, notes: ["index.md"], plugins: [], pluginDirectories: [] });
     return this.selectNotebook(path);
   }
 
@@ -293,7 +295,7 @@ export class ProjectManager {
     if (await this.store.exists(path)) throw new Error(`A note already exists at ${path}`);
     await this.store.writeText(path, `# ${title}\n`);
     notebook.notes.push(filename);
-    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins, notebook.pluginDirectories));
     return this.selectNote(path);
   }
 
@@ -306,7 +308,7 @@ export class ProjectManager {
     if (newPath !== path && await this.store.exists(newPath)) throw new Error(`A note already exists at ${newPath}`);
     if (newPath !== path) await this.store.rename(path, newPath);
     notebook.notes = notebook.notes.map((note) => note === oldName ? newName : note);
-    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins, notebook.pluginDirectories));
     if (this.currentNotePath === path) this.currentNotePath = newPath;
     return this.selectNote(newPath);
   }
@@ -315,7 +317,7 @@ export class ProjectManager {
     const notebook = this.notebooks.get(path);
     if (!notebook) throw new Error("Notebook does not belong to this project");
     notebook.title = title;
-    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, notebook.notes, notebook.plugins, notebook.pluginDirectories));
     return this.selectNotebook(path);
   }
 
@@ -325,7 +327,7 @@ export class ProjectManager {
     this.project.quickExportScope = scope;
     await this.store.writeText(
       this.project.path,
-      projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins),
+      projectToml(this.project.title, this.project.notebooks, this.project.quickExportScope, this.project.plugins, this.project.pluginDirectories),
     );
   }
 
@@ -341,7 +343,7 @@ export class ProjectManager {
     const filename = path.split("/").at(-1);
     const remainingNotes = notebook.notes.filter((note) => note !== filename);
     notebook.notes = remainingNotes;
-    await this.store.writeText(notebook.path, notebookToml(notebook.title, remainingNotes, notebook.plugins));
+    await this.store.writeText(notebook.path, notebookToml(notebook.title, remainingNotes, notebook.plugins, notebook.pluginDirectories));
     if (this.currentNotePath === path) {
       return this.selectNote(joinPath(dirname(notebook.path), remainingNotes[0]));
     }

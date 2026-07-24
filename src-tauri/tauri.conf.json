@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "org.ratmath.rixnb",
   "build": {
-    "beforeDevCommand": "bun run dev:web",
+    "beforeDevCommand": "bun run dev:tauri-webview",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "bun run build:web",
     "frontendDist": "../dist"

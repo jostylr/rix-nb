@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
-import { pluginTutorialIdFromPath } from "./plugin-catalog-core.js";
+import { configuredPluginDirectories, pluginTutorialIdFromPath, requestedPluginIds } from "./plugin-catalog-core.js";
 
 test("the notebook bundles approved Phase 1 output plugins", () => {
   const ids = createNotebookBundledPluginCatalog().list().map(({ id }) => id);
@@ -14,6 +14,24 @@ test("plugin tutorial paths select their lowercase plugin id", () => {
   expect(pluginTutorialIdFromPath("C:\\repo\\rix\\plugins\\float\\tutorial.md")).toBe("float");
   expect(pluginTutorialIdFromPath("/repo/rix/plugins/oracle/README.md")).toBeNull();
   expect(pluginTutorialIdFromPath("/repo/rix/tutorial.md")).toBeNull();
+});
+
+test("plugin roots combine settings with portable project and notebook paths", () => {
+  expect(configuredPluginDirectories(
+    { directory: "/work/project", pluginDirectories: ["shared", "/opt/rix"] },
+    { path: "/work/project/Analysis/notebook.toml", pluginDirectories: ["lesson-plugins"] },
+    { pluginDirectories: ["/Users/ada/.rix/plugins"] },
+  )).toEqual([
+    "/Users/ada/.rix/plugins",
+    "/work/project/plugins",
+    "/work/project/shared",
+    "/opt/rix",
+    "/work/project/Analysis/lesson-plugins",
+  ]);
+});
+
+test("static Plugin.Load calls are found before a notebook starts evaluating", () => {
+  expect(requestedPluginIds('.Plugin.Load("plot"); .Plugin(\'stats\')', ["float"])).toEqual(["float", "plot", "stats"]);
 });
 
 test("the desktop shell exposes the plugin rescan development workflow", async () => {
