@@ -21,3 +21,10 @@ test("RiX engine honors static-only publication code", () => {
 test("fence metadata stays a UI-independent document concern", () => {
   expect(parseFenceMetadata("singleton edu")).toMatchObject({ execution: "singleton", role: "edu", showCode: true });
 });
+
+test("a bundled tutorial plugin can be preloaded and explicitly loaded again", () => {
+  const source = "```rix\n.Plugin.Load(\"draw\");\n.draw.Circle([10, 10], 4);\n```";
+  const run = engine().executeDocument(source, { plugins: ["draw"] });
+  expect(run.outputStatements.at(-1)?.kind).toBe("result");
+  expect(run.outputStatements.at(-1)?.content).toContain("circle");
+});

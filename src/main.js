@@ -31,7 +31,12 @@ import {
 import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
 import { ProjectManager } from "./project.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
-import { clonePluginCatalog, configuredPluginIds, createProjectPluginCatalog } from "./plugin-catalog.js";
+import {
+  clonePluginCatalog,
+  configuredPluginIds,
+  createProjectPluginCatalog,
+  pluginTutorialIdFromPath,
+} from "./plugin-catalog.js";
 import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
 import { createRixNotebookEngine } from "./notebook-web/rix-engine.js";
@@ -53,6 +58,7 @@ const sliderControls = document.querySelector("#slider-controls");
 const sliderControlList = document.querySelector("#slider-control-list");
 const previewPane = document.querySelector("#preview-pane");
 const runButton = document.querySelector("#run-notebook");
+const reloadPluginsButton = document.querySelector("#reload-plugins");
 const toggleRightPaneButton = document.querySelector("#toggle-right-pane");
 const togglePreviewModeButton = document.querySelector("#toggle-preview-mode");
 const rightPaneTitle = document.querySelector("#right-pane-title");
@@ -123,6 +129,7 @@ let folderWorkspace = null;
 let helpCatalog = null;
 let pluginCatalogTemplate = createNotebookBundledPluginCatalog();
 let configuredPlugins = [];
+let tutorialPluginId = null;
 const rixEngine = createRixNotebookEngine({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
 let staticPreviewObjectUrls = [];
 const sliderOverrides = new Map();
@@ -2010,7 +2017,7 @@ async function saveNote() {
   } else {
     await projects.saveCurrentNote(editor.state.doc.toString());
   }
-  if (activeDocument.kind === "toml") await refreshPluginCatalog();
+  if (activeDocument.kind === "toml" || tutorialPluginId) await refreshPluginCatalog();
   dirty = false;
   updateSaveButton();
   setStatus(["note", "file", "folder-file"].includes(activeDocument.kind) ? "Saved" : "Saved configuration");
@@ -2018,15 +2025,42 @@ async function saveNote() {
 }
 
 async function refreshPluginCatalog() {
+  tutorialPluginId = pluginTutorialIdFromPath(activeDocument.path);
   if (!projects.isOpen) {
     pluginCatalogTemplate = createNotebookBundledPluginCatalog();
-    configuredPlugins = [];
+    configuredPlugins = tutorialPluginId && pluginCatalogTemplate.info(tutorialPluginId)
+      ? [tutorialPluginId]
+      : [];
     rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
+    reloadPluginsButton.hidden = !(tutorialPluginId || folderWorkspace);
     return;
   }
   pluginCatalogTemplate = await createProjectPluginCatalog(projects.project.directory);
-  configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook);
+  const tutorialPlugins = tutorialPluginId && pluginCatalogTemplate.info(tutorialPluginId)
+    ? [tutorialPluginId]
+    : [];
+  configuredPlugins = configuredPluginIds(projects.project, projects.currentNotebook, tutorialPlugins);
   rixEngine.configure({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
+  reloadPluginsButton.hidden = false;
+}
+
+async function reloadPluginsAndRun() {
+  setStatus("Reloading plugins…");
+  await refreshPluginCatalog();
+  runNotebook();
+  const suffix = tutorialPluginId
+    ? pluginCatalogTemplate.info(tutorialPluginId)
+      ? ` · ${tutorialPluginId} enabled`
+      : ` · ${tutorialPluginId} is not implemented in this build`
+    : "";
+  setStatus(`Plugins reloaded${suffix}`);
+}
+
+function openedDocumentStatus(filename) {
+  if (!tutorialPluginId) return `Opened ${filename}`;
+  return pluginCatalogTemplate.info(tutorialPluginId)
+    ? `Opened ${filename} · ${tutorialPluginId} enabled for live tutorial editing`
+    : `Opened ${filename} · ${tutorialPluginId} is proposed or unavailable`;
 }
 
 function pathDirectoryForFile(path) {
@@ -2044,7 +2078,7 @@ async function loadStandaloneMarkdown(path) {
   await refreshPluginCatalog();
   setDocument(await readTextFile(path));
   refreshProjectControls();
-  setStatus(`Opened ${path.split("/").at(-1)}`);
+  setStatus(openedDocumentStatus(path.split("/").at(-1)));
   try {
     await invoke("record_recent_file", { path, title: path.split("/").at(-1) });
   } catch {
@@ -2159,9 +2193,10 @@ async function loadFolderFile(path) {
   if (dirty) await saveNote();
   activeDocument = { kind: "folder-file", path };
   editorKind.textContent = path.toLowerCase().endsWith(".toml") ? "TOML" : "Markdown";
+  await refreshPluginCatalog();
   setDocument(await readTextFile(path));
   refreshProjectControls();
-  setStatus(`Opened ${path.split("/").at(-1)}`);
+  setStatus(openedDocumentStatus(path.split("/").at(-1)));
 }
 
 function closeOpenRecentMenu() {
@@ -2228,7 +2263,7 @@ async function loadNote(note) {
   await refreshPluginCatalog();
   setDocument(note.source);
   refreshProjectControls();
-  setStatus(`Opened ${note.path.split("/").at(-1)}`);
+  setStatus(openedDocumentStatus(note.path.split("/").at(-1)));
   await rememberCurrentProject();
 }
 
@@ -2324,6 +2359,7 @@ const editor = new EditorView({
 });
 
 runButton.addEventListener("click", runNotebook);
+reloadPluginsButton.addEventListener("click", () => runProjectAction(reloadPluginsAndRun));
 toggleRightPaneButton.addEventListener("click", toggleRightPane);
 togglePreviewModeButton.addEventListener("click", togglePreviewMode);
 collapseDocumentPaneButton.addEventListener("click", collapseDocumentPane);

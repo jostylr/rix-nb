@@ -125,6 +125,26 @@ The installed approximate-math plugin supplies `.float(x)`,
 the app but disabled by default; put `"float"` in either list or run
 `.Plugin.Load("float")` in RiX.
 
+### Developing plugin tutorials
+
+Open a first-party `rix/plugins/<plugin-id>/tutorial.md` directly in RiX
+Notebook to enter plugin-tutorial development mode. If that plugin is bundled
+in the app, the notebook enables it automatically, reruns edited tutorial cells
+in the ordinary live preview, and still permits explicit
+`.Plugin.Load("<plugin-id>")` calls in the lesson.
+
+Use **Reload plugins** above the results pane after changing a project-local
+`*.plugin.rix` source. The action rescans plugin manifests and RiX source,
+creates a fresh catalog, and reruns the notebook. During `bun run dev`, edits
+to bundled JavaScript plugins such as `draw` and `plot` are additionally handled
+by Vite's module reload. Packaged applications never execute an arbitrary
+project-local JavaScript plugin; it must remain an explicitly bundled and
+approved installer.
+
+A tutorial whose matching plugin is only proposed remains editable and
+previewable, but its code results report that the plugin is unavailable rather
+than loading a placeholder implementation.
+
 The preview renders `$inline$`, `$$display$$`, `\\(inline\\)`, and
 `\\[display\\]` mathematics with KaTeX. Relative Markdown image paths resolve
 from the active note and are served through Tauri's asset protocol, so normal

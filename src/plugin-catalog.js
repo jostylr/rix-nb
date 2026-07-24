@@ -2,6 +2,7 @@ import { exists, readDir, readTextFile } from "@tauri-apps/plugin-fs";
 import { readPluginHeader } from "../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 export { clonePluginCatalog } from "./plugin-catalog-core.js";
+export { pluginTutorialIdFromPath } from "./plugin-catalog-core.js";
 
 function joinPath(...parts) {
   return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
@@ -46,6 +47,6 @@ export async function createProjectPluginCatalog(projectDirectory) {
   return catalog;
 }
 
-export function configuredPluginIds(project, notebook) {
-  return [...new Set([...(project?.plugins || []), ...(notebook?.plugins || [])])];
+export function configuredPluginIds(project, notebook, additional = []) {
+  return [...new Set([...(project?.plugins || []), ...(notebook?.plugins || []), ...additional])];
 }

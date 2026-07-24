@@ -9,3 +9,13 @@ export function clonePluginCatalog(template) {
   for (const [id, installer] of template.installers) catalog.registerInstaller(id, installer);
   return catalog;
 }
+
+/**
+ * Recognize a first-party or project plugin tutorial without assuming a
+ * particular repository root. Opening that Markdown source in the notebook can
+ * then opt into the matching catalog entry for live exploration.
+ */
+export function pluginTutorialIdFromPath(path) {
+  const normalized = String(path || "").replaceAll("\\", "/");
+  return normalized.match(/(?:^|\/)plugins\/([^/]+)\/tutorial\.md$/i)?.[1] || null;
+}

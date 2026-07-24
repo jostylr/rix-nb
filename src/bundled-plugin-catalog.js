@@ -6,6 +6,7 @@
  * plugin-catalog.js and do not receive this approval merely by being found.
  */
 import { PluginCatalog } from "../../rix/src/index.js";
+import { installBundledPlugins } from "../../rix/plugins/bundled.js";
 import { installBrowserApproxMathPlugin } from "../../rix/plugins/float/browser-installer.js";
 
 const approxMathMetadata = {
@@ -21,6 +22,7 @@ const approxMathMetadata = {
 
 export function createNotebookBundledPluginCatalog() {
   const catalog = new PluginCatalog();
+  installBundledPlugins(catalog);
   catalog.addMetadata(approxMathMetadata, {
     sourcePath: "bundled:float",
     kind: "host",
