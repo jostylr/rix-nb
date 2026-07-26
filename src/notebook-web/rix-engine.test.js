@@ -28,3 +28,29 @@ test("a bundled tutorial plugin can be preloaded and explicitly loaded again", (
   expect(run.outputStatements.at(-1)?.kind).toBe("result");
   expect(run.outputStatements.at(-1)?.content).toContain("circle");
 });
+
+test("bundled Phase 1 plugins execute through the notebook host", () => {
+  const source = `\`\`\`rix
+.Plugin.Load("float");
+.float.Round(.float(1 / 3), 2);
+.Plugin.Load("draw");
+.draw.Circle([10, 10], 4);
+.Plugin.Load("plot");
+.plot.Polynomial([1, 0, -1], [-2, 2]);
+\`\`\``;
+  const run = engine().executeDocument(source);
+  expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
+  expect(run.outputStatements[1]?.content).toBe("33/100");
+  expect(run.outputStatements[3]?.content).toContain("circle");
+  expect(run.outputStatements[5]?.content).toContain("Graphic");
+  expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
+});
+
+test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
+  for (const id of ["float", "draw", "plot"]) {
+    const source = await Bun.file(new URL(`../../../rix/plugins/${id}/tutorial.md`, import.meta.url)).text();
+    const run = engine().executeDocument(source);
+    expect(run.outputStatements.length, id).toBeGreaterThan(0);
+    expect(run.outputStatements.map(({ kind }) => kind), id).not.toContain("error");
+  }
+});
