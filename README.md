@@ -30,20 +30,21 @@ the notebook runtime. See [the web-core guide](src/notebook-web/README.md).
 
 ### Browser single-file prototype
 
-The browser host is now usable without Tauri. It opens a single Markdown file,
-uses the shared editor/RiX runtime, and saves by downloading the edited file.
-Optional local recovery copies are stored only in the browser through IndexedDB;
-they are clearly opt-in, can be removed from **Recent**, and should not be
-treated as durable storage.
+The browser host is usable without Tauri. It opens either a single Markdown
+file or a ZIP archive. A ZIP becomes a virtual project directory with the
+same notebook/file sidebar, images and other binary assets preserved, and a
+project ZIP download on save. Static project export produces a second ZIP
+whose Markdown notes contain rendered RiX output while retaining the original
+asset layout. Optional local recovery copies are stored only for single files
+through IndexedDB; they are clearly opt-in, can be removed from **Recent**,
+and should not be treated as durable storage.
 
 ```sh
 cd rix-nb
 bun run dev:browser
 ```
 
-Open the printed local URL. ZIP projects and the virtual project sidebar
-are intentionally the next phase, after adding the browser ZIP dependency.
-`bun run dev:web` is an alias for this browser host. Use `bun run dev` for the
+Open the printed local URL. `bun run dev:web` is an alias for this browser host. Use `bun run dev` for the
 native Tauri app. To inspect the native app's frontend in a plain browser, run
 `bun run dev:tauri-webview` and open <http://127.0.0.1:1420>; it cannot open
 files because it has no Tauri bridge.

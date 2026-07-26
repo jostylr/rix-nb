@@ -17,6 +17,10 @@
         </div>
       </header>
       <section class="workspace" aria-label="RiX Markdown workspace">
+        <aside id="browser-project-sidebar" class="project-sidebar browser-project-sidebar" hidden aria-label="Project files">
+          <div class="sidebar-heading"><span id="browser-sidebar-title" class="pane-title">Files</span><div class="sidebar-icon-actions"><button id="browser-new-note" type="button" title="Create Markdown file">+</button></div></div>
+          <nav id="browser-project-tree" class="project-tree" aria-label="Virtual project files"></nav>
+        </aside>
         <section class="pane editor-pane" aria-label="Markdown editor"><div class="editor-heading"><span class="pane-title">Markdown</span></div><div id="markdown-editor"></div></section>
         <div id="main-resizer" class="main-resizer" role="separator" aria-label="Resize editor and document panes" aria-orientation="vertical" tabindex="0"><div class="divider-controls" aria-label="Pane layout controls"><button id="collapse-document-pane" class="divider-control" type="button" title="Collapse preview and results">→</button><button id="center-panes" class="divider-control divider-drag-control" type="button" title="Center panes; drag to resize">↔</button><button id="collapse-editor-pane" class="divider-control" type="button" title="Collapse editor">←</button></div></div>
         <section class="document-pane" aria-label="Rendered notebook">
@@ -27,9 +31,9 @@
         </section>
       </section>
     </main>
-    <input id="markdown-file" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+    <input id="markdown-file" type="file" accept=".md,.markdown,.zip,text/markdown,text/plain,application/zip" hidden />
     <dialog id="recent-dialog" class="app-dialog"><div class="help-header"><div><p class="eyebrow">This browser</p><h2>Recent local copies</h2></div><button id="close-recent" class="secondary-button" type="button">Close</button></div><p class="dialog-hint">Only files you explicitly opted to keep are listed here.</p><div id="recent-list" class="recent-list"></div></dialog>
-    <dialog id="export-dialog" class="app-dialog"><form method="dialog"><h2>Export</h2><p class="dialog-hint">The browser single-file prototype exports rendered static Markdown. ZIP-based HTML and Quarto project exports arrive with ZIP project support.</p><div class="dialog-actions"><button value="cancel" class="secondary-button" type="button">Cancel</button><button value="confirm" type="submit">Download rendered Markdown</button></div></form></dialog>
+    <dialog id="export-dialog" class="app-dialog"><form method="dialog"><h2>Export</h2><p id="browser-export-hint" class="dialog-hint">Export a static rendered Markdown copy.</p><div class="dialog-actions"><button value="cancel" class="secondary-button" type="button">Cancel</button><button id="browser-export-confirm" value="confirm" type="submit">Download rendered Markdown</button></div></form></dialog>
     <script type="module" src="/main.js"></script>
   </body>
 </html>

@@ -1,7 +1,10 @@
 .web-app-shell { min-width: 760px; }
 .web-app-shell .workspace { grid-template-columns: minmax(360px, var(--editor-pane-width, 1fr)) 8px minmax(360px, 1fr); }
+.web-app-shell .workspace.has-project { grid-template-columns: 220px minmax(360px, var(--editor-pane-width, 1fr)) 8px minmax(360px, 1fr); }
 .web-app-shell .workspace.editor-collapsed { grid-template-columns: minmax(0, 0) 8px minmax(0, 1fr); }
 .web-app-shell .workspace.document-collapsed { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 0); }
+.web-app-shell .workspace.has-project.editor-collapsed { grid-template-columns: 220px minmax(0, 0) 8px minmax(0, 1fr); }
+.web-app-shell .workspace.has-project.document-collapsed { grid-template-columns: 220px minmax(0, 1fr) 8px minmax(0, 0); }
 .web-app-shell .editor-pane { grid-column: auto; }
 .web-app-shell .document-pane { grid-column: auto; min-width: 0; }
 .web-app-shell .editor-heading { justify-content: flex-start; }
@@ -20,4 +23,10 @@
 .save-menu button { width: 100%; text-align: left; }
 .save-menu label { display: block; margin: .7rem .25rem .35rem; font-size: .8rem; font-weight: 600; }
 .save-menu p { margin: 0 .25rem .25rem; color: #67645e; font-size: .74rem; line-height: 1.35; }
+.browser-project-sidebar { min-width: 0; }
+.browser-tree-folder,
+.browser-tree-asset { overflow: hidden; color: #746d62; font-size: .76rem; line-height: 1.8; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tree-folder { margin-top: .3rem; color: #4d6688; font-weight: 700; }
+.browser-tree-file { width: 100%; }
+.browser-notebook-marker { color: #4d6688; text-align: center; }
 @media (max-width: 900px) { .web-app-shell { min-width: 0; } .web-app-shell .workspace { display: block; overflow: auto; } .web-app-shell .pane, .web-app-shell .document-pane { min-height: 46vh; } }

@@ -25,6 +25,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
   } = elements;
   const renderer = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const defaultFence = renderer.renderer.rules.fence;
+  const defaultImage = renderer.renderer.rules.image;
   let currentRun = null;
   let applying = false;
   let rightPane = "results";
@@ -42,6 +43,12 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     const value = document.createElement("div");
     value.innerHTML = run.liveOutput.value && run.statements.at(-1)?.html ? run.statements.at(-1).html : `<pre>${escapeHtml(run.liveOutput.content)}</pre>`;
     return `<div class="rix-preview-cell">${code}<div class="rix-preview-results"><div class="rix-preview-result">${value.innerHTML}</div></div></div>`;
+  };
+  renderer.renderer.rules.image = (tokens, index, options, env, self) => {
+    const token = tokens[index];
+    const source = token.attrGet("src");
+    if (source) token.attrSet("src", host.resolveAsset(source));
+    return defaultImage(tokens, index, options, env, self);
   };
 
   function escapeHtml(value) { return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
