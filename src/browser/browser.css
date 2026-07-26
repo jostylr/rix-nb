@@ -23,10 +23,17 @@
 .save-menu button { width: 100%; text-align: left; }
 .save-menu label { display: block; margin: .7rem .25rem .35rem; font-size: .8rem; font-weight: 600; }
 .save-menu p { margin: 0 .25rem .25rem; color: #67645e; font-size: .74rem; line-height: 1.35; }
+.browser-open-menu { right: auto; left: 0; }
+.browser-open-menu > p { margin: .25rem .3rem .45rem; font-weight: 700; }
+.browser-recent-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .3rem; align-items: center; }
+.browser-recent-row button:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-recent-row .secondary-button { width: 1.75rem; padding-inline: .2rem; text-align: center; }
+.browser-recent-empty { padding: .35rem .3rem; }
 .browser-project-sidebar { min-width: 0; }
 .browser-tree-folder,
 .browser-tree-asset { overflow: hidden; color: #746d62; font-size: .76rem; line-height: 1.8; text-overflow: ellipsis; white-space: nowrap; }
 .browser-tree-folder { margin-top: .3rem; color: #4d6688; font-weight: 700; }
 .browser-tree-file { width: 100%; }
 .browser-notebook-marker { color: #4d6688; text-align: center; }
+body.is-file-dragging::after { position: fixed; z-index: 100; inset: 1rem; display: grid; place-items: center; color: #1f3558; background: rgb(229 237 247 / .94); border: 3px dashed #4d6688; border-radius: .8rem; content: "Drop a Markdown file or project ZIP to open it"; font-size: 1.15rem; font-weight: 700; pointer-events: none; }
 @media (max-width: 900px) { .web-app-shell { min-width: 0; } .web-app-shell .workspace { display: block; overflow: auto; } .web-app-shell .pane, .web-app-shell .document-pane { min-height: 46vh; } }
