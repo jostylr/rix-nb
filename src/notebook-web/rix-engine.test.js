@@ -57,6 +57,17 @@ test("the notebook preserves address-aware Sheet output", () => {
   expect(statement.html).toContain('data-rix-address="grid[2,3]"');
 });
 
+test("the notebook preserves interactive tensor-plane controls", () => {
+  const source = "```rix\ncube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};\n.Sheet(cube, {= axes=[\"row\", \"column\", \"depth\"], slice=[_, _, 2], address=\"cube\" });\n```";
+  const run = engine().executeDocument(source);
+  const statement = run.outputStatements.at(-1);
+
+  expect(statement.html).toContain('data-rix-sheet-axis="3"');
+  expect(statement.html).toContain('data-rix-plane-key="3:1"');
+  expect(statement.html).toContain('data-rix-plane-key="3:2"');
+  expect(statement.html).toContain('data-rix-address="cube[1,3,2]"');
+});
+
 test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
   for (const id of ["float", "draw", "plot"]) {
     const source = await Bun.file(new URL(`../../../rix/plugins/${id}/tutorial.md`, import.meta.url)).text();
