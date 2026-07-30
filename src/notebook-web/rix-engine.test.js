@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createWidgetSession, formatValue, parseAndEvaluate } from "../../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "../bundled-plugin-catalog.js";
 import { createRixNotebookEngine, parseFenceMetadata } from "./rix-engine.js";
 
@@ -55,6 +56,24 @@ test("the notebook preserves address-aware Sheet output", () => {
   expect(statement.html).toContain("rix-output-sheet");
   expect(statement.html).toContain('data-rix-display-address="C2"');
   expect(statement.html).toContain('data-rix-address="grid[2,3]"');
+});
+
+test("the notebook exposes live Sheet values to a host-owned WidgetSession", () => {
+  const source = "```rix\nmatrix := {:1x2: 1, 2};\n.Sheet(.Bind(matrix));\n```";
+  const run = engine().executeDocument(source);
+  const statement = run.outputStatements.at(-1);
+  const widget = createWidgetSession(statement.value);
+  const editedValue = parseAndEvaluate("5 / 2", {
+    context: run.runtime.context,
+    registry: run.runtime.registry,
+    systemContext: run.runtime.systemContext,
+  });
+
+  widget.dispatch({ type: "sheet:set", index: [1, 2], value: editedValue });
+  expect(formatValue(run.runtime.context.get("matrix").data[1])).toBe("2..1/2");
+  expect(formatValue(widget.current().cells[0][1].value)).toBe("2..1/2");
+  expect(widget.snapshot().editable).toBe(false);
+  widget.dispose();
 });
 
 test("the notebook preserves interactive tensor-plane controls", () => {

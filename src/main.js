@@ -15,6 +15,7 @@ import { copyFile, exists, mkdir, readDir, readTextFile, writeFile, writeTextFil
 import { Integer, Rational, RationalInterval } from "@ratmath/core";
 import {
   Context,
+  createWidgetSession,
   createDefaultRegistry,
   createDefaultSystemContext,
   enhanceSheetViews,
@@ -795,7 +796,7 @@ function insertSheetAddress({ address }) {
   editor.focus();
 }
 
-function appendOutput(statement) {
+function appendOutput(statement, runtime) {
   const result = document.createElement("section");
   result.className = `cell-result cell-result-${statement.kind}`;
   result.tabIndex = 0;
@@ -814,7 +815,26 @@ function appendOutput(statement) {
   value.className = "cell-result-value";
   if (statement.html) {
     value.innerHTML = statement.html;
-    enhanceSheetViews(value, { onActivate: insertSheetAddress });
+    const widgetSession = statement.value?.kind === "sheet" && statement.value.editable
+      ? createWidgetSession(statement.value)
+      : null;
+    enhanceSheetViews(value, {
+      onActivate: insertSheetAddress,
+      onEdit: widgetSession ? ({ index, source: editSource }) => {
+        try {
+          const editedValue = parseAndEvaluate(editSource, {
+            context: runtime.context,
+            registry: runtime.registry,
+            systemContext: runtime.systemContext,
+            file: `<sheet edit at line ${statement.line}>`,
+          });
+          widgetSession.dispatch({ type: "sheet:set", index, value: editedValue });
+          return { type: "result", value: editedValue, text: formatValue(editedValue), revision: widgetSession.revision };
+        } catch (error) {
+          return { type: "error", text: error instanceof Error ? error.message : String(error) };
+        }
+      } : null,
+    });
     if (value.querySelector(".rix-output-sheet")) {
       result.removeAttribute("tabindex");
       result.setAttribute("role", "group");
@@ -1183,7 +1203,7 @@ async function runNotebook() {
     setPreviewStale(false);
     return;
   }
-  for (const statement of documentRun.outputStatements) appendOutput(statement);
+  for (const statement of documentRun.outputStatements) appendOutput(statement, documentRun.runtime);
   const succeeded = documentRun.runs.filter((run) => run.statements.every((statement) => statement.kind === "result")).length;
   latestRuns = documentRun.runs;
   renderDocumentPreview(documentRun);

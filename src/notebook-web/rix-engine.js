@@ -189,7 +189,7 @@ function executeCell(cell, runtime) {
       for (const slider of runtime.sliders.slice(sliderStart)) Object.assign(slider, { name: sliderName, line });
       const hostCommand = irNode.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(irNode.args?.[0] || ""));
       if (!hostCommand) implicitOutput = { available: true, value };
-      statements.push({ line, code: source.code, content: formatValue(value), html: isOutputValue(value) ? renderOutputHtml(value, formatValue) : null, kind: "result", position: cell.start + source.start });
+      statements.push({ line, code: source.code, value, content: formatValue(value), html: isOutputValue(value) ? renderOutputHtml(value, formatValue) : null, kind: "result", position: cell.start + source.start });
     } catch (error) { statements.push({ line, code: source.code, content: error instanceof Error ? error.message : String(error), kind: "error", position: cell.start + source.start }); break; }
   }
   const channel = runtime.mode === "static" ? "static" : "live";
@@ -241,7 +241,7 @@ export function createRixNotebookEngine(configuration = {}) {
     executeDocument(source, options = {}) {
       const document = parseNotebookDocument(source); const runtime = makeNotebookRuntime(this, options.sliderOverrides || new Map(), options); const runs = new Array(document.cells.length); const inlineRuns = []; const outputStatements = [];
       for (const event of document.nodes) if (event.type === "cell") { const cell = event.value; try { runs[cell.index] = executeCell(cell, runtime); } catch (error) { runs[cell.index] = { metadata: cell.metadata, statements: [{ line: cell.codeLine, code: cell.code.trim(), content: error instanceof Error ? error.message : String(error), kind: "error", position: cell.start }] }; } outputStatements.push(...runs[cell.index].statements); } else { try { const run = executeInlineExpression(event.value, runtime); inlineRuns.push(run); outputStatements.push(run.statement); } catch (error) { const content = error instanceof Error ? error.message : String(error); const run = { start: event.value.start, end: event.value.end, replacement: `RiX error: ${content}`, statement: { line: event.value.line, code: `@{${event.value.expression}}`, content, kind: "error", label: "Inline RiX", position: event.value.start } }; inlineRuns.push(run); outputStatements.push(run.statement); } }
-      return { document, cells: document.cells, inlineRuns, runs, outputStatements: outputStatements.sort((left, right) => left.position - right.position), sliders: runtime.sliders, renderedSource: replaceInlineExpressions(source, inlineRuns), staticRenderedSource: options.mode === "static" ? renderStaticDocument(document, runs, inlineRuns) : null };
+      return { document, cells: document.cells, inlineRuns, runs, outputStatements: outputStatements.sort((left, right) => left.position - right.position), sliders: runtime.sliders, runtime, renderedSource: replaceInlineExpressions(source, inlineRuns), staticRenderedSource: options.mode === "static" ? renderStaticDocument(document, runs, inlineRuns) : null };
     },
   };
   return assertNotebookEngine(engine);

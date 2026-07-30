@@ -7,6 +7,12 @@ import { markdown } from "@codemirror/lang-markdown";
 import MarkdownIt from "markdown-it";
 import renderMathInElement from "katex/contrib/auto-render";
 import { Integer } from "@ratmath/core";
+import {
+  createWidgetSession,
+  enhanceSheetViews,
+  formatValue,
+  parseAndEvaluate,
+} from "../../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../../rix/src/tools/codemirror/index.js";
 import { assertNotebookEngine, createNotebookHost } from "./contracts.js";
 import { isInRixCell, parseFenceMetadata } from "./rix-engine.js";
@@ -64,7 +70,33 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
       const line = document.createElement("span"); line.className = "cell-result-line-number"; line.textContent = `Line ${statement.line}`;
       const source = document.createElement("pre"); source.className = "cell-source"; source.textContent = statement.code.replaceAll("\n", " ↵ ");
       const result = document.createElement(statement.html ? "div" : "pre"); result.className = "cell-result-value";
-      if (statement.html) result.innerHTML = statement.html; else result.textContent = statement.content.replaceAll("\n", " ↵ ");
+      if (statement.html) {
+        result.innerHTML = statement.html;
+        const widgetSession = statement.value?.kind === "sheet" && statement.value.editable
+          ? createWidgetSession(statement.value)
+          : null;
+        enhanceSheetViews(result, {
+          onActivate: ({ address }) => {
+            const selection = view.state.selection.main;
+            view.dispatch({ changes: { from: selection.from, to: selection.to, insert: address }, selection: { anchor: selection.from + address.length } });
+            view.focus();
+          },
+          onEdit: widgetSession ? ({ index, source: editSource }) => {
+            try {
+              const editedValue = parseAndEvaluate(editSource, {
+                context: run.runtime.context,
+                registry: run.runtime.registry,
+                systemContext: run.runtime.systemContext,
+                file: `<sheet edit at line ${statement.line}>`,
+              });
+              widgetSession.dispatch({ type: "sheet:set", index, value: editedValue });
+              return { type: "result", value: editedValue, text: formatValue(editedValue), revision: widgetSession.revision };
+            } catch (error) {
+              return { type: "error", text: error instanceof Error ? error.message : String(error) };
+            }
+          } : null,
+        });
+      } else result.textContent = statement.content.replaceAll("\n", " ↵ ");
       item.append(line, source, result); item.addEventListener("click", () => api.jumpToLine(statement.line)); output.append(item);
     }
   }
