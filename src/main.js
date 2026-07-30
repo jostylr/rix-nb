@@ -17,6 +17,7 @@ import {
   Context,
   createDefaultRegistry,
   createDefaultSystemContext,
+  enhanceSheetViews,
   evaluate,
   formatValue,
   isOutputValue,
@@ -249,6 +250,7 @@ function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets
     ],
     throwOnError: false,
   });
+  enhanceSheetViews(preview, { onActivate: insertSheetAddress });
 }
 
 function setPreviewStale(stale) {
@@ -783,6 +785,16 @@ function jumpToLine(line) {
   editor.focus();
 }
 
+function insertSheetAddress({ address }) {
+  const selection = editor.state.selection.main;
+  editor.dispatch({
+    changes: { from: selection.from, to: selection.to, insert: address },
+    selection: { anchor: selection.from + address.length },
+    scrollIntoView: true,
+  });
+  editor.focus();
+}
+
 function appendOutput(statement) {
   const result = document.createElement("section");
   result.className = `cell-result cell-result-${statement.kind}`;
@@ -800,7 +812,15 @@ function appendOutput(statement) {
 
   const value = document.createElement(statement.html ? "div" : "pre");
   value.className = "cell-result-value";
-  if (statement.html) value.innerHTML = statement.html;
+  if (statement.html) {
+    value.innerHTML = statement.html;
+    enhanceSheetViews(value, { onActivate: insertSheetAddress });
+    if (value.querySelector(".rix-output-sheet")) {
+      result.removeAttribute("tabindex");
+      result.setAttribute("role", "group");
+      result.setAttribute("aria-label", `RiX result on line ${statement.line} with selectable sheet`);
+    }
+  }
   else value.textContent = statement.content.replaceAll("\n", " ↵ ");
   value.title = statement.content;
 
@@ -1141,6 +1161,7 @@ function renderStaticPreview(source) {
       katex.renderToString(expression, { displayMode: true, throwOnError: false }),
     );
   }
+  enhanceSheetViews(preview, { onActivate: insertSheetAddress });
 }
 
 async function runNotebook() {

@@ -1073,6 +1073,65 @@ body.is-resizing {
 .cell-result-value .rix-output-figure figcaption,
 .rix-preview-result .rix-output-figure figcaption { margin-top: 0.32rem; color: #657080; font: 0.76rem/1.35 system-ui, sans-serif; }
 
+.cell-result-value .rix-output-sheet,
+.rix-preview-result .rix-output-sheet {
+  display: inline-grid;
+  max-width: 100%;
+  gap: 0.35rem;
+  color: #28313c;
+  font-variant-numeric: tabular-nums;
+}
+
+.rix-output-sheet-title {
+  margin: 0;
+  color: #34465c;
+  font: 600 0.84rem/1.3 system-ui, sans-serif;
+}
+
+.rix-output-sheet-location {
+  min-height: 1.35em;
+  color: #657080;
+  font: 0.72rem/1.35 system-ui, sans-serif;
+}
+
+.rix-output-sheet table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid #cfd8e5;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.rix-output-sheet th,
+.rix-output-sheet td {
+  min-width: 3.4rem;
+  padding: 0.28rem 0.5rem;
+  border: 0;
+  border-right: 1px solid #dbe2ea;
+  border-bottom: 1px solid #dbe2ea;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rix-output-sheet tr:last-child > * { border-bottom: 0; }
+.rix-output-sheet tr > *:last-child { border-right: 0; }
+.rix-output-sheet th {
+  color: #486078;
+  background: #edf3fa;
+  font: 600 0.72rem/1.3 system-ui, sans-serif;
+}
+.rix-output-sheet-corner { text-align: left !important; }
+.rix-output-sheet td { cursor: cell; outline: 0; }
+.rix-output-sheet td:hover { background: #f5f8fc; }
+.rix-output-sheet td:focus,
+.rix-output-sheet td.rix-sheet-cell-selected {
+  position: relative;
+  z-index: 1;
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 2px #6366f1;
+}
+
 .rix-preview-cell {
   margin: 1rem 0;
 }

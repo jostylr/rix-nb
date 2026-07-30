@@ -4,6 +4,7 @@ import {
   Context,
   createDefaultRegistry,
   createDefaultSystemContext,
+  enhanceSheetViews,
   evaluate,
   formatValue,
   isOutputValue,
@@ -256,6 +257,7 @@ if (payloadElement || sourceCellElements.length) {
       throwOnError: false,
     });
     normalizeLiveTables(widget);
+    enhanceSheetViews(widget);
   }
 
   function normalizeLiveTables(widget) {
@@ -313,7 +315,7 @@ if (payloadElement || sourceCellElements.length) {
     if (document.querySelector("#rix-live-styles")) return;
     const style = document.createElement("style");
     style.id = "rix-live-styles";
-    style.textContent = ".rix-live-ready .rix-static,.rix-live-ready .rix-runtime-source,.rix-live-ready [data-rix-source-cell]{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{overflow:auto;margin:1rem 0}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output .rix-output-table{display:inline-table!important;width:auto!important;max-width:100%;table-layout:auto}.rix-live-output th,.rix-live-output td{width:auto!important;padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}";
+    style.textContent = ".rix-live-ready .rix-static,.rix-live-ready .rix-runtime-source,.rix-live-ready [data-rix-source-cell]{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{overflow:auto;margin:1rem 0}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output .rix-output-table{display:inline-table!important;width:auto!important;max-width:100%;table-layout:auto}.rix-live-output th,.rix-live-output td{width:auto!important;padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}.rix-output-sheet{display:inline-grid;max-width:100%;gap:.35rem;font-variant-numeric:tabular-nums}.rix-output-sheet-title{margin:0;font:600 14px system-ui,sans-serif}.rix-output-sheet-location{min-height:1.35em;color:#657080;font:12px system-ui,sans-serif}.rix-output-sheet table{border:1px solid #cfd8e5;background:#fff}.rix-output-sheet th,.rix-output-sheet td{min-width:3.4rem;padding:.3rem .5rem;border:1px solid #dbe2ea;text-align:right;white-space:nowrap}.rix-output-sheet th{color:#486078;background:#edf3fa;font:600 12px system-ui,sans-serif}.rix-output-sheet td{cursor:cell;outline:0}.rix-output-sheet td:hover{background:#f5f8fc}.rix-output-sheet td:focus,.rix-output-sheet td.rix-sheet-cell-selected{background:#eef2ff;box-shadow:inset 0 0 0 2px #6366f1}";
     document.head.append(style);
   }
 }

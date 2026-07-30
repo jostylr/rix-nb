@@ -46,6 +46,17 @@ test("bundled Phase 1 plugins execute through the notebook host", () => {
   expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
 });
 
+test("the notebook preserves address-aware Sheet output", () => {
+  const source = "```rix\n.Sheet({:2x3: 1, 2, 3; 4, 5, 6});\n```";
+  const run = engine().executeDocument(source);
+  const statement = run.outputStatements[0];
+
+  expect(statement.kind).toBe("result");
+  expect(statement.html).toContain("rix-output-sheet");
+  expect(statement.html).toContain('data-rix-display-address="C2"');
+  expect(statement.html).toContain('data-rix-address="grid[2,3]"');
+});
+
 test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
   for (const id of ["float", "draw", "plot"]) {
     const source = await Bun.file(new URL(`../../../rix/plugins/${id}/tutorial.md`, import.meta.url)).text();
