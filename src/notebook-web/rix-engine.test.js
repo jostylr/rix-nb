@@ -77,7 +77,19 @@ test("the notebook exposes live Sheet values to a host-owned WidgetSession", () 
 });
 
 test("the notebook preserves interactive tensor-plane controls", () => {
-  const source = "```rix\ncube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};\n.Sheet(cube, {= axes=[\"row\", \"column\", \"depth\"], slice=[_, _, 2], address=\"cube\" });\n```";
+  const source = `\`\`\`rix
+cube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};
+.Sheet(cube, {=
+  axes=["region", "measure", "scenario"],
+  axisLabels=[
+    ["North", "South"],
+    ["Revenue", "Cost", "Margin"],
+    ["Actual", "Forecast"]
+  ],
+  slice=[_, _, 2],
+  address="cube"
+});
+\`\`\``;
   const run = engine().executeDocument(source);
   const statement = run.outputStatements.at(-1);
 
@@ -85,6 +97,8 @@ test("the notebook preserves interactive tensor-plane controls", () => {
   expect(statement.html).toContain('data-rix-plane-key="3:1"');
   expect(statement.html).toContain('data-rix-plane-key="3:2"');
   expect(statement.html).toContain('data-rix-address="cube[1,3,2]"');
+  expect(statement.html).toContain('<option value="2" selected>Forecast</option>');
+  expect(statement.html).toContain('data-rix-coordinate-label="North / Margin / Forecast"');
 });
 
 test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
