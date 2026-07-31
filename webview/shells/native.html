@@ -1,17 +1,10 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RiX Notebook</title>
-  </head>
-  <body>
+<body>
     <main class="app-shell">
       <header class="toolbar">
         <div class="toolbar-title-group">
           <button id="toggle-sidebar" class="toolbar-sidebar-toggle" type="button" title="Show project sidebar" aria-label="Show project sidebar" aria-pressed="false" hidden>☰</button>
           <div>
-            <p class="eyebrow">RiX Notebook</p>
+            <p class="eyebrow">{{product.name}}</p>
             <h1 id="workspace-title">Scratch note</h1>
           </div>
         </div>
@@ -227,7 +220,4 @@ perimeter;
       <span id="app-notice-message"></span>
       <button id="close-app-notice" type="button" aria-label="Dismiss error">×</button>
     </aside>
-
-    <script type="module" src="/src/main.js"></script>
-  </body>
-</html>
+</body>

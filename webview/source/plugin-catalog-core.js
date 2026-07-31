@@ -1,4 +1,4 @@
-import { PluginCatalog } from "../../rix/src/index.js";
+import { PluginCatalog } from "../../../rix/src/index.js";
 
 /** A catalog is stateful after loading, so every notebook run receives a fresh copy. */
 export function clonePluginCatalog(template) {

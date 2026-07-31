@@ -6,14 +6,16 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
+    "prepare:docshell": "bun scripts/extract-docshell.mjs",
+    "test": "bun test",
     "sync:help": "bun scripts/sync-help.mjs",
     "build:live-runtime": "vite build --config vite.live.config.js",
-    "dev:web": "vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
-    "dev:tauri-webview": "bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
+    "dev:web": "bun run prepare:docshell && vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
+    "dev:tauri-webview": "bun run prepare:docshell && bun run sync:help && bun run build:live-runtime && vite --host 127.0.0.1 --port 1420",
     "build": "tauri build",
-    "build:web": "bun run sync:help && bun run build:live-runtime && vite build",
+    "build:web": "bun run prepare:docshell && bun run sync:help && bun run build:live-runtime && vite build",
     "dev:browser": "bun run dev:web",
-    "build:browser": "vite build --config vite.browser.config.js",
+    "build:browser": "bun run prepare:docshell && vite build --config vite.browser.config.js",
     "preview": "vite preview"
   },
   "dependencies": {

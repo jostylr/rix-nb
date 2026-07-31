@@ -12,7 +12,7 @@ import {
   parse,
   parseAndEvaluate,
   renderOutputHtml,
-} from "../../rix/src/index.js";
+} from "../../../rix/src/index.js";
 import { gridLatex } from "./output-latex.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 

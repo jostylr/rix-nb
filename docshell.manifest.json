@@ -1,0 +1,39 @@
+{
+  "$schema": "./docshell/docshell-manifest.schema.json",
+  "formatVersion": 1,
+  "product": {
+    "name": "RiX Notebook",
+    "browserName": "RiX Notebook Web",
+    "description": "Markdown-first executable mathematical documents"
+  },
+  "entrypoints": {
+    "native": "webview/source/main.js",
+    "browser": "webview/source/browser/main.js"
+  },
+  "webview": {
+    "nativeMarkup": "webview/shells/native.html",
+    "browserMarkup": "webview/shells/browser.html"
+  },
+  "native": {
+    "menu": {
+      "newDocument": "New Note…",
+      "newProject": "New Project…",
+      "saveDocument": "Save",
+      "saveAndCommit": "Save and Commit Note…",
+      "newCollection": "New Notebook…",
+      "export": "Export…",
+      "quickExport": "Export Notebook / Project",
+      "toggleOutput": "Toggle Preview / Results",
+      "help": "RiX Notebook Help",
+      "reference": "RiX Language Reference",
+      "tutorials": "RiX Tutorials"
+    }
+  },
+  "files": {
+    "primaryExtensions": ["md", "markdown", "mdown", "mkdn"],
+    "editableExtensions": ["md", "markdown", "mdown", "mkdn", "toml", "txt", "json", "yaml", "yml", "csv", "tsv", "svg", "html", "htm", "css", "js", "mjs", "qmd"],
+    "visibleExtensions": ["md", "markdown", "mdown", "mkdn", "toml", "txt", "json", "yaml", "yml", "csv", "tsv", "svg", "png", "jpg", "jpeg", "gif", "webp", "pdf", "html", "htm", "css", "js", "mjs", "qmd"],
+    "manifestNames": ["project.toml", "notebook.toml", "style.toml"],
+    "archiveExtensions": ["zip"]
+  }
+}

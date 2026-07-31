@@ -1,14 +1,20 @@
+import docshellManifest from "../../../docshell.manifest.json" with { type: "json" };
+import { createFilePolicy } from "../../../docshell/src/file-policy.js";
+import { BrowserDocumentStore, createSingleFileStore } from "../../../docshell/src/browser/browser-document-store.js";
+import { configureLocalDocumentStorage, listLocalDocuments, loadLocalDocument, removeLocalDocument, saveLocalDocument } from "../../../docshell/src/browser/local-documents.js";
+import { createZipProject, findProjectRoot, openZipProject } from "../../../docshell/src/browser/zip-project.js";
+import "../../../docshell/styles/tokens.css";
+import "../../../docshell/styles/browser.css";
 import "../styles.css";
 import "katex/dist/katex.min.css";
-import "./browser.css";
 import MarkdownIt from "markdown-it";
 import { createNotebookBundledPluginCatalog } from "../bundled-plugin-catalog.js";
 import { ProjectManager } from "../project.js";
 import { createRixNotebookEngine } from "../notebook-web/rix-engine.js";
 import { mountNotebookWeb } from "../notebook-web/workbench.js";
-import { BrowserDocumentStore, createSingleFileStore } from "./browser-document-store.js";
-import { listLocalNotebooks, loadLocalNotebook, removeLocalNotebook, saveLocalNotebook } from "./local-notebooks.js";
-import { createZipProject, findProjectRoot, openZipProject } from "./zip-project.js";
+
+const filePolicy = createFilePolicy(docshellManifest.files);
+configureLocalDocumentStorage("rix-notebook-web");
 
 const starter = `# Welcome to RiX Notebook Web
 
@@ -43,11 +49,11 @@ function joinPath(...parts) {
   }
   return `/${output.join("/")}`;
 }
-function isMarkdown(path) { return /\.(?:md|markdown)$/i.test(path); }
-function isEditable(path) { return /\.(?:md|markdown|toml|txt|json|ya?ml|csv|tsv|svg|html?|css|js|mjs|qmd)$/i.test(path); }
+function isMarkdown(path) { return filePolicy.isPrimary(path); }
+function isEditable(path) { return filePolicy.isEditable(path); }
 function normalizedFilename(value, extension = ".md") {
   const name = value.trim() || `rix-notebook${extension}`;
-  const hasExtension = extension === ".md" ? /\.(?:md|markdown)$/i.test(name) : name.toLowerCase().endsWith(extension.toLowerCase());
+  const hasExtension = extension === ".md" ? filePolicy.isPrimary(name) : name.toLowerCase().endsWith(extension.toLowerCase());
   return hasExtension ? name : `${name}${extension}`;
 }
 function archiveLabel(value = uploadedArchiveName) { return basename(value || "rix-notebook.zip").replace(/\.zip$/i, "") || "rix-notebook"; }
@@ -79,7 +85,7 @@ async function persist(source) {
       const saved = workspaceKind === "single"
         ? { id: identity(), filename, source, kind: "markdown" }
         : { id: identity(), filename: archiveName(), archive: createZipProject(store), kind: "zip" };
-      await saveLocalNotebook(saved); elements.status.textContent = "Saved local recovery copy";
+      await saveLocalDocument(saved); elements.status.textContent = "Saved local recovery copy";
     }
     catch { elements.status.textContent = "Could not save browser recovery copy"; }
   }, 500);
@@ -118,7 +124,7 @@ async function renderFolderTree(root = "/", indent = 0) {
       const heading = document.createElement("div"); heading.className = "browser-tree-folder"; heading.style.paddingLeft = `${0.35 + indent * 0.8}rem`; heading.textContent = entry.name; fragment.append(heading, await renderFolderTree(path, indent + 1));
     } else if (isEditable(path)) {
       const button = treeButton(entry.name, path, "tree-note browser-tree-file"); button.style.paddingLeft = `${1.15 + indent * 0.8}rem`; fragment.append(button);
-    } else {
+    } else if (filePolicy.isVisible(path)) {
       const asset = document.createElement("div"); asset.className = "browser-tree-asset"; asset.style.paddingLeft = `${1.15 + indent * 0.8}rem`; asset.textContent = entry.name; fragment.append(asset);
     }
   }
@@ -147,7 +153,7 @@ async function openSingleMarkdown(file) {
   clearStore(); filename = file.name || "untitled.md"; uploadedArchiveName = null; const source = await file.text(); store = createSingleFileStore(filename, source); activePath = store.normalize(filename); workspaceKind = "single"; projectManager = null; updateWorkspaceChrome(); await setActiveDocument(activePath, source); elements.status.textContent = `Opened ${filename} in browser memory`;
 }
 async function openZipBytes(bytes, archiveFileName = "rix-notebook.zip") {
-  clearStore(); uploadedArchiveName = archiveFileName; store = openZipProject(bytes); saveHandle = null; const root = findProjectRoot(store); workspaceKind = root ? "project" : "folder"; projectManager = root ? new ProjectManager(store) : null;
+  clearStore(); uploadedArchiveName = archiveFileName; store = openZipProject(bytes, { isText: filePolicy.isEditable }); saveHandle = null; const root = findProjectRoot(store, "project.toml"); workspaceKind = root ? "project" : "folder"; projectManager = root ? new ProjectManager(store) : null;
   try {
     if (projectManager) {
       const note = await projectManager.openProject(root); activePath = note.path; filename = basename(note.path);
@@ -163,7 +169,7 @@ async function openZipBytes(bytes, archiveFileName = "rix-notebook.zip") {
 async function openZip(file) { return openZipBytes(new Uint8Array(await file.arrayBuffer()), file.name); }
 async function openInput(file) {
   if (!file) return;
-  try { if (/\.zip$/i.test(file.name) || file.type === "application/zip") await openZip(file); else await openSingleMarkdown(file); }
+  try { if (filePolicy.isArchive(file.name) || file.type === "application/zip") await openZip(file); else await openSingleMarkdown(file); }
   catch (error) { elements.status.textContent = `Could not open ${file.name}: ${error.message}`; }
   finally { fileInput.value = ""; }
 }
@@ -237,17 +243,17 @@ document.addEventListener("keydown", (event) => { if (!(event.metaKey || event.c
 const openMenu = $("#browser-open-menu"); const recentList = $("#browser-recent-list");
 function closeOpenMenu() { openMenu.hidden = true; $("#recent-notebooks").setAttribute("aria-expanded", "false"); }
 async function openLocalCopy(item) {
-  const saved = await loadLocalNotebook(item.id); if (!saved) return;
+  const saved = await loadLocalDocument(item.id); if (!saved) return;
   if (saved.kind === "zip" && saved.archive) await openZipBytes(new Uint8Array(saved.archive), saved.filename);
   else { clearStore(); filename = saved.filename; uploadedArchiveName = null; store = createSingleFileStore(filename, saved.source); activePath = store.normalize(filename); workspaceKind = "single"; projectManager = null; keepLocal.checked = true; updateWorkspaceChrome(); await setActiveDocument(activePath, saved.source); }
   closeOpenMenu();
 }
 async function renderRecents() {
-  recentList.replaceChildren(); const recents = await listLocalNotebooks();
+  recentList.replaceChildren(); const recents = await listLocalDocuments();
   if (!recents.length) { const empty = document.createElement("p"); empty.className = "browser-recent-empty"; empty.textContent = "No opted-in local copies yet."; recentList.append(empty); return; }
   for (const item of recents) {
     const row = document.createElement("div"); row.className = "browser-recent-row"; const open = document.createElement("button"); open.type = "button"; open.textContent = item.filename; open.title = `Open local copy saved ${new Date(item.updatedAt).toLocaleString()}`; open.onclick = () => openLocalCopy(item).catch((error) => { elements.status.textContent = error.message; });
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary-button"; remove.textContent = "×"; remove.title = `Remove ${item.filename}`; remove.onclick = async () => { await removeLocalNotebook(item.id); renderRecents(); };
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary-button"; remove.textContent = "×"; remove.title = `Remove ${item.filename}`; remove.onclick = async () => { await removeLocalDocument(item.id); renderRecents(); };
     row.append(open, remove); recentList.append(row);
   }
 }

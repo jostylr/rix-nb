@@ -1,5 +1,5 @@
 import { exists, readDir, readTextFile } from "@tauri-apps/plugin-fs";
-import { readPluginHeader } from "../../rix/src/index.js";
+import { readPluginHeader } from "../../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 export { clonePluginCatalog } from "./plugin-catalog-core.js";
 export { configuredPluginDirectories, pluginTutorialIdFromPath, requestedPluginIds } from "./plugin-catalog-core.js";

@@ -1,5 +1,5 @@
 import { DEFAULT_PROJECT_THEME, parseProjectTheme, projectThemeToml } from "./theme.js";
-import { assertDocumentStore } from "./notebook-web/contracts.js";
+import { assertDocumentStore } from "../../docshell/src/contracts.js";
 
 const PROJECT_FILE = "project.toml";
 const NOTEBOOK_FILE = "notebook.toml";

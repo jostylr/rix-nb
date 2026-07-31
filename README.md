@@ -1,9 +1,9 @@
 # RiX Notebook
 
 RiX Notebook is a native macOS authoring environment for Markdown-first,
-executable mathematical documents. The native Tauri application manages the
-window and, later, projects and files; the bundled web application provides the
-editing and document-rendering experience.
+executable mathematical documents. A reusable DocShell host manages native and
+browser file/window concerns; the RiX WebView provides the editing, execution,
+and document-rendering experience.
 
 ## Architecture boundaries
 
@@ -11,22 +11,25 @@ The app now has an explicit reusable browser core rather than treating the
 Tauri entry point as the notebook implementation:
 
 ```text
-native shell (menus, windows, Git, dialogs)
+DocShell host (native or browser files, menus, storage)
                  │
-         Tauri DocumentStore
+             DocumentStore
                  │
-notebook-web (CodeMirror / Markdown / KaTeX surface)
+RiX webview (CodeMirror / Markdown / KaTeX surface)
                  │
       NotebookEngine (RiX adapter today)
 ```
 
-`src/notebook-web/` contains no Tauri imports. Its RiX adapter parses the
+`webview/source/notebook-web/` contains no Tauri imports. Its RiX adapter parses the
 Markdown document model, runs the linear runtime, supplies inline values and
-sliders, and creates static publication output. `src/tauri-document-store.js`
-is the desktop adapter for the deliberately small storage contract; the project
-schema manager consumes that contract rather than Tauri APIs. This makes a
-hosted or documentation-site editor an adapter exercise rather than a fork of
-the notebook runtime. See [the web-core guide](src/notebook-web/README.md).
+sliders, and creates static publication output. `docshell/` contains both HTML
+hosts, the native shell, and portable storage adapters. `docshell.manifest.json`
+defines product entrypoints plus visible/editable file types. Root build commands
+extract configured HTML into `.docshell-build/` before Vite runs.
+
+RiX-specific code and styling live under `webview/`. See the
+[host review](ARCHITECTURE.md), [DocShell guide](docshell/README.md), and
+[web-core guide](webview/source/notebook-web/README.md).
 
 ### Browser single-file prototype
 
@@ -104,7 +107,7 @@ selects, opens, and saves those files. `Cmd-S` saves the active note.
 The notebook has two deliberately separate plugin locations.
 
 - **Bundled, trusted plugins** live in
-  `rix-nb/src/bundled-plugin-catalog.js`. Their JavaScript is imported there,
+  `rix-nb/webview/source/bundled-plugin-catalog.js`. Their JavaScript is imported there,
   so it becomes part of the signed/application build. They are exposed in the
   catalog but still load only when named in a configuration file or requested
   with `.Plugin.Load("plugin-id")`.
@@ -251,6 +254,9 @@ Then, after reviewing `package.json`, install the JavaScript dependencies:
 cd rix-nb
 bun install
 ```
+
+All development and production hosts run `bun run prepare:docshell`
+automatically. Run it directly when inspecting the generated HTML build inputs.
 
 The first native build also downloads Rust crates, so it needs network access.
 Start the development app with:

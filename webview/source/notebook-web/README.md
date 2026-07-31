@@ -3,8 +3,8 @@
 `notebook-web/` is the browser-only core of RiX Notebook. It has no Tauri,
 filesystem, dialog, Git, or macOS imports.
 
-* `contracts.js` defines the narrow `NotebookEngine`, `DocumentStore`, and
-  host callback boundaries.
+* `../../../docshell/src/contracts.js` defines the narrow `NotebookEngine`,
+  `DocumentStore`, and host callback boundaries shared with other editors.
 * `rix-engine.js` is the RiX implementation of `NotebookEngine`: it parses
   Markdown/RiX documents, performs linear evaluation, exposes sliders, and
   produces static Markdown output.
@@ -12,7 +12,7 @@ filesystem, dialog, Git, or macOS imports.
   Markdown/KaTeX preview in any browser DOM.
 
 The native app is a consumer, not a prerequisite: it provides a Tauri
-`DocumentStore` from `../tauri-document-store.js`, then adds project/sidebar,
+`DocumentStore` from `../../../docshell/src/tauri-document-store.js`, then adds project/sidebar,
 menus, dialogs, recents, Git, and export destination UI around this web core.
 For a hosted version, replace that store and callbacks with HTTP-backed
 implementations; no engine or workbench changes are required.

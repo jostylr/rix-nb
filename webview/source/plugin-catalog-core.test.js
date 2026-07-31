@@ -35,7 +35,7 @@ test("static Plugin.Load calls are found before a notebook starts evaluating", (
 });
 
 test("the desktop shell exposes the plugin rescan development workflow", async () => {
-  const shell = await Bun.file(new URL("../index.html", import.meta.url)).text();
+  const shell = await Bun.file(new URL("../shells/native.html", import.meta.url)).text();
   const main = await Bun.file(new URL("./main.js", import.meta.url)).text();
   expect(shell).toContain('id="reload-plugins"');
   expect(main).toContain("async function reloadPluginsAndRun()");

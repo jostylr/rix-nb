@@ -12,10 +12,10 @@ import {
   posToLineCol,
   renderOutputHtml,
   tokenize,
-} from "../../../rix/src/index.js";
+} from "../../../../rix/src/index.js";
 import { clonePluginCatalog } from "../plugin-catalog-core.js";
 import { gridLatex } from "../output-latex.js";
-import { assertNotebookEngine } from "./contracts.js";
+import { assertNotebookEngine } from "../../../docshell/src/contracts.js";
 
 /** Parse portable fence directives; this is intentionally independent of UI. */
 export function parseFenceMetadata(header = "") {

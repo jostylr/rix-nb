@@ -11,9 +11,9 @@ import {
   formatValue,
   mountOutputWidgets,
   parseAndEvaluate,
-} from "../../../rix/src/index.js";
-import { rixHighlighting, rixLanguage } from "../../../rix/src/tools/codemirror/index.js";
-import { assertNotebookEngine, createNotebookHost } from "./contracts.js";
+} from "../../../../rix/src/index.js";
+import { rixHighlighting, rixLanguage } from "../../../../rix/src/tools/codemirror/index.js";
+import { assertNotebookEngine, createNotebookHost } from "../../../docshell/src/contracts.js";
 import { isInRixCell, parseFenceMetadata } from "./rix-engine.js";
 
 /**

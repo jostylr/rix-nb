@@ -1,6 +1,6 @@
 :root {
-  color: #202124;
-  background: #f7f6f3;
+  color: var(--docshell-text, #202124);
+  background: var(--docshell-canvas, #f7f6f3);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   --markdown-text: #252827;
@@ -68,7 +68,7 @@ body {
 button {
   padding: 0.28rem 0.5rem;
   color: #fffefa;
-  background: #1f3558;
+  background: var(--docshell-action, #1f3558);
   border: 1px solid #172a47;
   border-radius: 6px;
   font: inherit;
@@ -78,11 +78,11 @@ button {
 }
 
 button:hover {
-  background: #2d4b78;
+  background: var(--docshell-action-hover, #2d4b78);
 }
 
 button.file-action {
-  background: #08776d;
+  background: var(--docshell-file-action, #08776d);
   border-color: #056158;
 }
 
@@ -118,8 +118,8 @@ button:focus-visible {
   align-items: end;
   justify-content: space-between;
   padding: 20px 28px 18px;
-  background: #fffefa;
-  border-bottom: 1px solid #d9d6ce;
+  background: var(--docshell-surface, #fffefa);
+  border-bottom: 1px solid var(--docshell-border, #d9d6ce);
 }
 
 .toolbar-title-group {
@@ -1154,6 +1154,14 @@ body.is-resizing {
   background: #edf3fa;
   font: 600 0.72rem/1.3 system-ui, sans-serif;
 }
+.rix-output-sheet th.rix-sheet-header-editable { cursor: text; outline: 0; }
+.rix-output-sheet th.rix-sheet-header-editable:hover { background: #e4eaf7; }
+.rix-output-sheet th.rix-sheet-header-editable:focus {
+  position: relative;
+  z-index: 2;
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 2px #8b5cf6;
+}
 .rix-output-sheet-corner { text-align: left !important; }
 .rix-output-sheet td { cursor: cell; outline: 0; }
 .rix-output-sheet td:hover { background: #f5f8fc; }
@@ -1167,7 +1175,7 @@ body.is-resizing {
 
 .rix-output-sheet-editor {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) auto;
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
   gap: 0.35rem;
   align-items: end;
   padding: 0.45rem 0.5rem;
@@ -1183,7 +1191,8 @@ body.is-resizing {
   color: #5b42a0;
   font: 600 0.68rem/1.3 system-ui, sans-serif;
 }
-.rix-output-sheet-editor input {
+.rix-output-sheet-editor input,
+.rix-output-sheet-editor select {
   min-width: 0;
   padding: 0.28rem 0.4rem;
   border: 1px solid #b8a7e8;
@@ -1192,6 +1201,7 @@ body.is-resizing {
   background: #fff;
   font: 0.78rem/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.rix-output-sheet-editor .rix-output-sheet-assignment { min-width: 4.5rem; }
 .rix-output-sheet-editor button {
   padding: 0.29rem 0.55rem;
   border: 1px solid #6d28d9;
@@ -1200,10 +1210,17 @@ body.is-resizing {
   background: #7c3aed;
 }
 .rix-output-sheet-editor output {
-  grid-column: 1 / -1;
   min-height: 1em;
   color: #6d28d9;
   font: 0.66rem/1.2 system-ui, sans-serif;
+}
+.rix-output-sheet-editor [data-rix-edit-value] {
+  grid-column: 1 / 2;
+  color: #475569;
+}
+.rix-output-sheet-editor [data-rix-edit-status] {
+  grid-column: 2 / -1;
+  text-align: right;
 }
 
 .rix-preview-cell {

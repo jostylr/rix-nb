@@ -1,14 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RiX Notebook Web</title>
-  </head>
-  <body>
+<body>
     <main class="app-shell web-app-shell">
       <header class="toolbar">
-        <div class="toolbar-title-group"><div><p class="eyebrow">RiX Notebook Web</p><h1 id="workspace-title">Untitled Markdown</h1></div></div>
+        <div class="toolbar-title-group"><div><p class="eyebrow">{{product.browserName}}</p><h1 id="workspace-title">Untitled Markdown</h1></div></div>
         <div class="toolbar-actions">
           <p id="document-status" class="document-status" aria-live="polite">In browser memory</p>
           <button id="new-markdown" type="button">New</button>
@@ -31,8 +24,6 @@
         </section>
       </section>
     </main>
-    <input id="markdown-file" type="file" accept=".md,.markdown,.zip,text/markdown,text/plain,application/zip" hidden />
+    <input id="markdown-file" type="file" accept="{{files.browserAccept}}" hidden />
     <dialog id="export-dialog" class="app-dialog export-dialog"><form method="dialog"><h2>Export</h2><label for="browser-export-scope">Content</label><select id="browser-export-scope"><option value="note">Current note</option><option value="notebook">Notebook</option><option value="project">Whole project</option></select><label id="browser-export-notebook-label" for="browser-export-notebook">Notebook</label><select id="browser-export-notebook"></select><fieldset><legend>Outputs</legend><label><input id="browser-export-markdown" type="checkbox" checked /> Rendered Markdown and assets</label><label><input id="browser-export-html" type="checkbox" checked /> Static HTML pages</label><label><input id="browser-export-quarto" type="checkbox" checked /> Static Quarto project</label></fieldset><p id="browser-export-hint" class="dialog-hint">Select one or more static publication outputs. Browser export downloads a ZIP when more than one file is produced.</p><div class="dialog-actions"><button value="cancel" class="secondary-button" type="button">Cancel</button><button id="browser-export-confirm" value="confirm" type="submit">Download export</button></div></form></dialog>
-    <script type="module" src="/main.js"></script>
-  </body>
-</html>
+</body>

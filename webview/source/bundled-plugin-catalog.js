@@ -5,9 +5,9 @@
  * application bundle. Project plugins are added separately by
  * plugin-catalog.js and do not receive this approval merely by being found.
  */
-import { PluginCatalog } from "../../rix/src/index.js";
-import { installBundledPlugins } from "../../rix/plugins/bundled.js";
-import { installBrowserApproxMathPlugin } from "../../rix/plugins/float/browser-installer.js";
+import { PluginCatalog } from "../../../rix/src/index.js";
+import { installBundledPlugins } from "../../../rix/plugins/bundled.js";
+import { installBrowserApproxMathPlugin } from "../../../rix/plugins/float/browser-installer.js";
 
 const approxMathMetadata = {
   id: "float",

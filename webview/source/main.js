@@ -29,8 +29,11 @@ import {
   renderGraphicSvg,
   tokenize,
   renderOutputHtml,
-} from "../../rix/src/index.js";
-import { rixHighlighting, rixLanguage } from "../../rix/src/tools/codemirror/index.js";
+} from "../../../rix/src/index.js";
+import { rixHighlighting, rixLanguage } from "../../../rix/src/tools/codemirror/index.js";
+import docshellManifest from "../../docshell.manifest.json" with { type: "json" };
+import { createFilePolicy } from "../../docshell/src/file-policy.js";
+import { createTauriDocumentStore } from "../../docshell/src/tauri-document-store.js";
 import { ProjectManager } from "./project.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 import {
@@ -44,8 +47,10 @@ import {
 import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import { gridLatex } from "./output-latex.js";
 import { createRixNotebookEngine } from "./notebook-web/rix-engine.js";
-import { createTauriDocumentStore } from "./tauri-document-store.js";
+import "../../docshell/styles/tokens.css";
 import "./styles.css";
+
+const filePolicy = createFilePolicy(docshellManifest.files);
 
 const editorHost = document.querySelector("#markdown-editor");
 const initialDocument = editorHost.textContent.trim();
@@ -820,8 +825,33 @@ function appendOutput(statement, runtime) {
       : null;
     enhanceSheetViews(value, {
       onActivate: insertSheetAddress,
-      onEdit: widgetSession ? ({ index, source: editSource }) => {
+      onHeaderEdit: widgetSession?.editMode === "formula" ? ({ axis, coordinate, label }) => {
         try {
+          widgetSession.dispatch({ type: "sheet:header", axis, coordinate, label });
+          return { type: "result", revision: widgetSession.revision };
+        } catch (error) {
+          return { type: "error", text: error instanceof Error ? error.message : String(error) };
+        }
+      } : null,
+      onEdit: widgetSession ? ({ index, source: editSource, assignmentMode }) => {
+        try {
+          if (widgetSession.editMode === "formula") {
+            widgetSession.dispatch({
+              type: "sheet:formula",
+              index,
+              source: editSource,
+              assignmentMode,
+            });
+            const updates = widgetSession.cellUpdates(formatValue);
+            return {
+              type: "result",
+              value: widgetSession.formulaSheet.getFormula(index),
+              text: updates.find((entry) =>
+                entry.address === `${widgetSession.current().addressBase}[${index.join(",")}]`)?.text ?? "",
+              updates,
+              revision: widgetSession.revision,
+            };
+          }
           const editedValue = parseAndEvaluate(editSource, {
             context: runtime.context,
             registry: runtime.registry,
@@ -2244,10 +2274,11 @@ async function loadStandaloneMarkdown(path) {
 }
 
 async function openMarkdownFile() {
+  const openExtensions = [...new Set([...filePolicy.primaryExtensions, ...filePolicy.manifestNames.map((name) => filePolicy.extensionOf(name))])];
   const path = await openDialog({
     title: "Open Markdown file or project manifest",
     multiple: false,
-    filters: [{ name: "Markdown or project manifest", extensions: ["md", "markdown", "mdown", "mkdn", "toml"] }],
+    filters: [{ name: "Document or project manifest", extensions: openExtensions }],
   });
   if (!path || Array.isArray(path)) return;
   if (path.split("/").at(-1) === "project.toml") {
@@ -2273,7 +2304,7 @@ async function openProjectFolder() {
 }
 
 function isFolderDocument(path) {
-  return /\.(?:md|markdown|mdown|mkdn|toml)$/i.test(path);
+  return filePolicy.isPrimary(path) || filePolicy.isManifest(path);
 }
 
 async function listFolderDocuments(directory, prefix = "") {
@@ -2295,7 +2326,7 @@ async function loadFolderWorkspace(directory) {
   folderWorkspace = { directory, files: (await listFolderDocuments(directory)).sort((left, right) => left.relativePath.localeCompare(right.relativePath)) };
   applyProjectTheme(DEFAULT_PROJECT_THEME);
   await refreshPluginCatalog();
-  const initialFile = folderWorkspace.files.find((file) => /\.md(?:own|arkdown)?$/i.test(file.path)) || folderWorkspace.files[0];
+  const initialFile = folderWorkspace.files.find((file) => filePolicy.isPrimary(file.path)) || folderWorkspace.files[0];
   if (initialFile) {
     await loadFolderFile(initialFile.path);
     return;
@@ -2325,7 +2356,7 @@ async function createFolderMarkdownFile() {
   if (!folderWorkspace) throw new Error("Open a folder before creating a Markdown file");
   const title = await requestName({ title: "New Markdown file", label: "File name", value: "Untitled note" });
   if (!title) return;
-  const filename = /\.(?:md|markdown|mdown|mkdn)$/i.test(title) ? title : `${title}.md`;
+  const filename = filePolicy.isPrimary(title) ? title : `${title}.${filePolicy.primaryExtensions[0]}`;
   const path = pathJoin(folderCreationDirectory(), filename);
   if (await exists(path)) throw new Error(`A file already exists at ${path}`);
   await writeTextFile(path, `# ${filename.replace(/\.[^.]+$/, "")}\n`);

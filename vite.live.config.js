@@ -16,9 +16,9 @@ export default defineConfig({
     ],
     alias: {
       "@ratmath/core": fileURLToPath(new URL("../packages/core/index.js", import.meta.url)),
-      "node:fs": fileURLToPath(new URL("./src/browser/node-only.js", import.meta.url)),
-      "node:module": fileURLToPath(new URL("./src/browser/node-only.js", import.meta.url)),
-      "node:path": fileURLToPath(new URL("./src/browser/node-only.js", import.meta.url)),
+      "node:fs": fileURLToPath(new URL("./docshell/src/browser/node-only.js", import.meta.url)),
+      "node:module": fileURLToPath(new URL("./docshell/src/browser/node-only.js", import.meta.url)),
+      "node:path": fileURLToPath(new URL("./docshell/src/browser/node-only.js", import.meta.url)),
     },
   },
   build: {
@@ -26,7 +26,7 @@ export default defineConfig({
     emptyOutDir: false,
     minify: "esbuild",
     lib: {
-      entry: "src/live-runtime.js",
+      entry: "webview/source/live-runtime.js",
       formats: ["es"],
       fileName: () => "rix-live.js",
     },

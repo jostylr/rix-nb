@@ -28,3 +28,4 @@ examples/**/export/
 
 
 dist-web/
+.docshell-build/
