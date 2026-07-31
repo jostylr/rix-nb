@@ -1,0 +1,3 @@
+[submodule "docshell"]
+	path = docshell
+	url = git@github.com:jostylr/docshell.git
