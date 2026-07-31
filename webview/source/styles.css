@@ -1160,6 +1160,23 @@ body.is-resizing {
 }
 .rix-output-control small { grid-column: 2 / -1; color: #657080; }
 .rix-output-control-status { min-height: 1em; color: #6d28d9; font-size: 0.7rem; }
+.rix-output-control-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding-top: 0.15rem;
+}
+.rix-output-control-actions button {
+  border: 1px solid #7c3aed;
+  border-radius: 5px;
+  background: #fff;
+  color: #6d28d9;
+  padding: 0.3rem 0.6rem;
+  font: inherit;
+}
+.rix-output-control-actions button:first-child { background: #7c3aed; color: #fff; }
+.rix-output-control-actions button:disabled { cursor: default; opacity: 0.48; }
+.rix-output-control-actions button:focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
 
 .cell-result-value .rix-output-sheet,
 .rix-preview-result .rix-output-sheet {
