@@ -1092,6 +1092,38 @@ body.is-resizing {
   font: 0.7rem/1.35 system-ui, sans-serif;
 }
 
+.rix-output-control-panel {
+  display: inline-grid;
+  min-width: min(28rem, 100%);
+  gap: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 7px;
+  background: #fafaff;
+  color: #34465c;
+  font: 0.78rem/1.35 system-ui, sans-serif;
+}
+.rix-output-control-panel > h3,
+.rix-output-control-panel > p { margin: 0; }
+.rix-output-control-panel > h3 { color: #5b42a0; font-size: 0.86rem; }
+.rix-output-control-panel > p { color: #657080; }
+.rix-output-control-list { display: grid; gap: 0.5rem; }
+.rix-output-control {
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) minmax(8rem, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+}
+.rix-output-control input[type="range"] { width: 100%; accent-color: #7c3aed; }
+.rix-output-control output {
+  min-width: 5ch;
+  color: #5b42a0;
+  text-align: right;
+  font-family: "SF Mono", Monaco, monospace;
+}
+.rix-output-control small { grid-column: 2 / -1; color: #657080; }
+.rix-output-control-status { min-height: 1em; color: #6d28d9; font-size: 0.7rem; }
+
 .cell-result-value .rix-output-sheet,
 .rix-preview-result .rix-output-sheet {
   display: inline-grid;
