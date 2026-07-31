@@ -76,6 +76,29 @@ test("the notebook exposes live Sheet values to a host-owned WidgetSession", () 
   widget.dispose();
 });
 
+test("the notebook preserves interactive Graphic targets for the shared widget protocol", () => {
+  const source = `\`\`\`rix
+$$point := {: 30,40};
+.Graphics.Graphic([160,100], [
+  .Graphics.DragPoint($$point, 7, {= fill="#7c3aed" })
+]);
+\`\`\``;
+  const run = engine().executeDocument(source);
+  const statement = run.outputStatements.at(-1);
+  const handle = statement.value.children[0];
+  const widget = createWidgetSession(statement.value);
+
+  expect(statement.html).toContain('data-rix-interactive="true"');
+  expect(statement.html).toContain(`data-rix-drag-target="${handle.targetId}"`);
+  widget.dispatch({
+    type: "graphic:position",
+    targetId: handle.targetId,
+    position: [80, 60],
+  });
+  expect(formatValue(run.runtime.context.get("point").peek())).toBe("( 80, 60 )");
+  widget.dispose();
+});
+
 test("the notebook preserves interactive tensor-plane controls", () => {
   const source = `\`\`\`rix
 cube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};

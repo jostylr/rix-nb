@@ -1073,6 +1073,25 @@ body.is-resizing {
 .cell-result-value .rix-output-figure figcaption,
 .rix-preview-result .rix-output-figure figcaption { margin-top: 0.32rem; color: #657080; font: 0.76rem/1.35 system-ui, sans-serif; }
 
+.rix-output-drag-point {
+  cursor: grab;
+  outline: none;
+  filter: drop-shadow(0 1px 2px rgb(15 23 42 / 0.35));
+}
+.rix-output-drag-point:hover,
+.rix-output-drag-point:focus {
+  stroke: #fff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px #7c3aed);
+}
+.rix-output-drag-point-active { cursor: grabbing; }
+.rix-output-graphic-status {
+  display: block;
+  margin-top: 0.3rem;
+  color: #6d28d9;
+  font: 0.7rem/1.35 system-ui, sans-serif;
+}
+
 .cell-result-value .rix-output-sheet,
 .rix-preview-result .rix-output-sheet {
   display: inline-grid;
