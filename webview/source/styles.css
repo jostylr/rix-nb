@@ -1147,6 +1147,11 @@ body.is-resizing {
   color: #6d28d9;
   padding: 0.25rem 0.55rem;
 }
+.rix-output-control-scale { font-variant-numeric: tabular-nums; }
+.rix-output-control-validation { color: #b91c1c !important; }
+.rix-output-control[data-rix-control-disabled="true"] { opacity: 0.58; }
+.rix-output-control[data-rix-control-read-only="true"] { background: #f8fafc; }
+.rix-output-control[data-rix-control-read-only="true"] [data-rix-control-input] { cursor: not-allowed; }
 .rix-output-control output {
   min-width: 5ch;
   color: #5b42a0;
