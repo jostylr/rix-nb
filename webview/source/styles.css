@@ -1115,6 +1115,38 @@ body.is-resizing {
   gap: 0.4rem 0.65rem;
 }
 .rix-output-control input[type="range"] { width: 100%; accent-color: #7c3aed; }
+.rix-output-control input[type="text"],
+.rix-output-control select {
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: #34465c;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+}
+.rix-output-control-input-row { display: flex; min-width: 0; gap: 0.35rem; }
+.rix-output-control-input-row input { flex: 1; }
+.rix-output-control-input-row button {
+  border: 1px solid #7c3aed;
+  border-radius: 5px;
+  background: #7c3aed;
+  color: #fff;
+  padding: 0.25rem 0.5rem;
+}
+.rix-output-control input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: #7c3aed; }
+.rix-output-control-range { min-width: 0; margin: 0; padding: 0; border: 0; }
+.rix-output-control-range-inputs { display: grid; gap: 0.15rem; }
+.rix-output-control-range legend { padding: 0; }
+.rix-output-control :focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
+.rix-output-control-reset > button {
+  justify-self: start;
+  border: 1px solid #7c3aed;
+  border-radius: 5px;
+  background: #fff;
+  color: #6d28d9;
+  padding: 0.25rem 0.55rem;
+}
 .rix-output-control output {
   min-width: 5ch;
   color: #5b42a0;
