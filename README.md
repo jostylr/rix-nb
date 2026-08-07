@@ -7,22 +7,24 @@ and document-rendering experience.
 
 ## Architecture boundaries
 
-The app now has an explicit reusable browser core rather than treating the
-Tauri entry point as the notebook implementation:
+The app has an explicit reusable notebook engine and widget layer rather than
+treating the Tauri entry point as the language implementation:
 
 ```text
 DocShell host (native or browser files, menus, storage)
                  │
              DocumentStore
                  │
-RiX webview (CodeMirror / Markdown / KaTeX surface)
+Host workbench (native or browser editor / preview / project UI)
                  │
-      NotebookEngine (RiX adapter today)
+NotebookEngine + shared output-widget protocol
 ```
 
 `webview/source/notebook-web/` contains no Tauri imports. Its RiX adapter parses the
 Markdown document model, runs the linear runtime, supplies inline values and
-sliders, and creates static publication output. `docshell/` contains both HTML
+sliders, and creates static publication output. Its compact browser workbench
+is used by the browser host; the feature-rich native workbench consumes the
+same engine and output-widget protocol. `docshell/` contains both HTML
 hosts, the native shell, and portable storage adapters. `docshell.manifest.json`
 defines product entrypoints plus visible/editable file types. Root build commands
 extract configured HTML into `.docshell-build/` before Vite runs.
@@ -52,11 +54,12 @@ native Tauri app. To inspect the native app's frontend in a plain browser, run
 `bun run dev:tauri-webview` and open <http://127.0.0.1:1420>; it cannot open
 files because it has no Tauri bridge.
 
-## Current milestone: Hello Markdown
+## Current status: authoring and publication
 
-This initial application opens a native macOS window with a CodeMirror 6
-Markdown editor, a live HTML preview, and a first RiX execution loop. The
-application runs fenced `rix` blocks and `@{expression}` inline values in
+The native application and browser host provide a CodeMirror 6 Markdown editor,
+live HTML preview, structured interactive output, project-aware storage, and
+static/live publication export. The application runs fenced `rix` blocks and
+`@{expression}` inline values in
 document order; normal `rix flow` blocks share a notebook context and a `rix singleton` block
 starts with a fresh isolated one. A `rix refresh` block starts a fresh context
 which becomes the context for subsequent ordinary blocks. Results update live

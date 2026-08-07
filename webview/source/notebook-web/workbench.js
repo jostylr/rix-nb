@@ -9,12 +9,21 @@ import renderMathInElement from "katex/contrib/auto-render";
 import { Integer } from "@ratmath/core";
 import {
   formatValue,
+  isOutputValue,
   mountOutputWidgets,
   parseAndEvaluate,
+  renderOutputHtml,
 } from "../../../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../../../rix/src/tools/codemirror/index.js";
 import { assertNotebookEngine, createNotebookHost } from "../../../docshell/src/contracts.js";
 import { isInRixCell, parseFenceMetadata } from "./rix-engine.js";
+
+export function publicationOutputHtml(run) {
+  if (!run?.liveOutput) return "";
+  return isOutputValue(run.liveOutput.value)
+    ? renderOutputHtml(run.liveOutput.value, formatValue)
+    : `<pre>${String(run.liveOutput.content).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</pre>`;
+}
 
 /**
  * Browser-only notebook editor, results pane, controls, and Markdown preview.
@@ -37,6 +46,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
   let delayedRun = null;
   let sliderSignature = "";
   const sliderOverrides = new Map();
+  let widgetDisposers = [];
 
   renderer.renderer.rules.fence = (tokens, index, options, env, self) => {
     const token = tokens[index];
@@ -45,9 +55,8 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     const metadata = run?.metadata || parseFenceMetadata(token.info.trim().replace(/^rix(?:\s+|$)/i, ""));
     const code = metadata.showCode ? defaultFence(tokens, index, options, env, self) : "";
     if (!run?.liveOutput || !metadata.showOutput) return code;
-    const value = document.createElement("div");
-    value.innerHTML = run.liveOutput.value && run.statements.at(-1)?.html ? run.statements.at(-1).html : `<pre>${escapeHtml(run.liveOutput.content)}</pre>`;
-    return `<div class="rix-preview-cell">${code}<div class="rix-preview-results"><div class="rix-preview-result">${value.innerHTML}</div></div></div>`;
+    const html = publicationOutputHtml(run);
+    return `<div class="rix-preview-cell">${code}<div class="rix-preview-results"><div class="rix-preview-result">${html}</div></div></div>`;
   };
   renderer.renderer.rules.image = (tokens, index, options, env, self) => {
     const token = tokens[index];
@@ -56,12 +65,34 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     return defaultImage(tokens, index, options, env, self);
   };
 
-  function escapeHtml(value) { return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
   function renderMath(element) {
     renderMathInElement(element, { delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }, { left: "\\(", right: "\\)", display: false }, { left: "\\[", right: "\\]", display: true }], throwOnError: false });
   }
   function setStatus(text) { if (status) status.textContent = text; host.onStatus(text); }
+  function disposeWidgets() {
+    for (const dispose of widgetDisposers.splice(0)) dispose();
+  }
+  function mountWidgets(root, value, runtime, line) {
+    const dispose = mountOutputWidgets(root, value, {
+      format: formatValue,
+      onActivate: ({ address }) => {
+        const selection = view.state.selection.main;
+        view.dispatch({ changes: { from: selection.from, to: selection.to, insert: address }, selection: { anchor: selection.from + address.length } });
+        view.focus();
+      },
+      evaluateEdit: (editSource, { mode }) => parseAndEvaluate(mode === "formula"
+        ? `@{ ${editSource} }`
+        : editSource, {
+        context: runtime.context,
+        registry: runtime.registry,
+        systemContext: runtime.systemContext,
+        file: `<widget edit at line ${line}>`,
+      }),
+    });
+    widgetDisposers.push(dispose);
+  }
   function renderResults(run) {
+    disposeWidgets();
     output.replaceChildren();
     if (!run.outputStatements.length) { output.innerHTML = '<p class="output-placeholder">No RiX cells or inline expressions found.</p>'; return; }
     for (const statement of run.outputStatements) {
@@ -71,27 +102,27 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
       const result = document.createElement(statement.html ? "div" : "pre"); result.className = "cell-result-value";
       if (statement.html) {
         result.innerHTML = statement.html;
-        mountOutputWidgets(result, statement.value, {
-          format: formatValue,
-          onActivate: ({ address }) => {
-            const selection = view.state.selection.main;
-            view.dispatch({ changes: { from: selection.from, to: selection.to, insert: address }, selection: { anchor: selection.from + address.length } });
-            view.focus();
-          },
-          evaluateEdit: (editSource, { mode }) => parseAndEvaluate(mode === "formula"
-            ? `@{ ${editSource} }`
-            : editSource, {
-            context: run.runtime.context,
-            registry: run.runtime.registry,
-            systemContext: run.runtime.systemContext,
-            file: `<sheet edit at line ${statement.line}>`,
-          }),
-        });
+        mountWidgets(result, statement.value, run.runtime, statement.line);
+        if (result.querySelector(".rix-output-sheet, .rix-output-control-panel, .rix-output-graphic[data-rix-interactive=\"true\"]")) item.removeAttribute("tabindex");
       } else result.textContent = statement.content.replaceAll("\n", " ↵ ");
-      item.append(line, source, result); item.addEventListener("click", () => api.jumpToLine(statement.line)); output.append(item);
+      item.append(line, source, result);
+      item.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea, [data-rix-drag-target], td[data-rix-address]")) return;
+        api.jumpToLine(statement.line);
+      });
+      output.append(item);
     }
   }
-  function renderPreview(run) { preview.innerHTML = renderer.render(run.renderedSource, { rixRuns: run.runs, rixIndex: 0 }); renderMath(preview); }
+  function renderPreview(run) {
+    preview.innerHTML = renderer.render(run.renderedSource, { rixRuns: run.runs, rixIndex: 0 });
+    renderMath(preview);
+    const roots = [...preview.querySelectorAll(".rix-preview-result")];
+    const visibleRuns = run.runs.filter((cellRun) => cellRun?.liveOutput && cellRun.metadata.showOutput);
+    for (const [index, cellRun] of visibleRuns.entries()) {
+      const root = roots[index];
+      if (root) mountWidgets(root, cellRun.liveOutput.value, run.runtime, cellRun.statements.at(-1)?.line || 1);
+    }
+  }
   function renderSliders(sliders) {
     if (!sliderControls || !sliderControlList) return;
     sliderControls.hidden = sliders.length === 0;
@@ -143,7 +174,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     get editor() { return view; }, get document() { return view.state.doc.toString(); }, get lastRun() { return currentRun; },
     setDocument(source) { applying = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } }); applying = false; sliderOverrides.clear(); return run(); },
     jumpToLine(line) { const target = view.state.doc.line(Math.min(line, view.state.doc.lines)); view.dispatch({ selection: { anchor: target.from }, scrollIntoView: true }); view.focus(); },
-    run, scheduleRun, validate() { return engine.validate(view.state.doc.toString()); }, setRightPane, toggleRightPane() { setRightPane(rightPane === "preview" ? "results" : "preview"); }, destroy() { window.clearTimeout(delayedRun); view.destroy(); },
+    run, scheduleRun, validate() { return engine.validate(view.state.doc.toString()); }, setRightPane, toggleRightPane() { setRightPane(rightPane === "preview" ? "results" : "preview"); }, destroy() { window.clearTimeout(delayedRun); disposeWidgets(); view.destroy(); },
   };
   runButton?.addEventListener("click", () => run()); toggleRightPaneButton?.addEventListener("click", () => api.toggleRightPane()); setRightPane("results"); run(); return api;
 }

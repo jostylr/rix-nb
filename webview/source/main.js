@@ -12,22 +12,17 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { copyFile, exists, mkdir, readDir, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { Integer, Rational, RationalInterval } from "@ratmath/core";
+import { Integer } from "@ratmath/core";
 import {
-  Context,
-  createWidgetSession,
-  createDefaultRegistry,
   createDefaultSystemContext,
   enhanceSheetViews,
-  evaluate,
   formatValue,
   isOutputValue,
   lower,
+  mountOutputWidgets,
   parse,
-  posToLineCol,
   parseAndEvaluate,
   renderGraphicSvg,
-  tokenize,
   renderOutputHtml,
 } from "../../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../../rix/src/tools/codemirror/index.js";
@@ -37,7 +32,6 @@ import { createTauriDocumentStore } from "../../docshell/src/tauri-document-stor
 import { ProjectManager } from "./project.js";
 import { createNotebookBundledPluginCatalog } from "./bundled-plugin-catalog.js";
 import {
-  clonePluginCatalog,
   configuredPluginDirectories,
   configuredPluginIds,
   createProjectPluginCatalog,
@@ -45,8 +39,15 @@ import {
   requestedPluginIds,
 } from "./plugin-catalog.js";
 import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
-import { gridLatex } from "./output-latex.js";
-import { createRixNotebookEngine } from "./notebook-web/rix-engine.js";
+import {
+  createRixNotebookEngine,
+  diagnosticForRixError,
+  extractRixCells,
+  isInRixCell,
+  parseFenceMetadata,
+  renderStaticDocument,
+  staticOutputMarkdown,
+} from "./notebook-web/rix-engine.js";
 import "../../docshell/styles/tokens.css";
 import "./styles.css";
 
@@ -155,6 +156,8 @@ let pluginSettings = {
 let editingPluginSettings = null;
 const rixEngine = createRixNotebookEngine({ pluginCatalog: pluginCatalogTemplate, plugins: configuredPlugins });
 let staticPreviewObjectUrls = [];
+let outputWidgetDisposers = [];
+let previewWidgetDisposers = [];
 const sliderOverrides = new Map();
 
 const markdownRenderer = new MarkdownIt({
@@ -244,8 +247,30 @@ function releaseStaticPreviewObjectUrls() {
   staticPreviewObjectUrls = [];
 }
 
-function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets = false } = {}) {
+function disposeWidgetMounts(disposers) {
+  for (const dispose of disposers.splice(0)) dispose();
+}
+
+function widgetEvaluation(source, runtime, line, mode) {
+  return parseAndEvaluate(mode === "formula" ? `@{ ${source} }` : source, {
+    context: runtime.context,
+    registry: runtime.registry,
+    systemContext: runtime.systemContext,
+    file: `<widget edit at line ${line}>`,
+  });
+}
+
+function mountNotebookWidgets(root, value, runtime, line, disposers) {
+  disposers.push(mountOutputWidgets(root, value, {
+    format: formatValue,
+    onActivate: insertSheetAddress,
+    evaluateEdit: (source, { mode }) => widgetEvaluation(source, runtime, line, mode),
+  }));
+}
+
+function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets = false, runtime = null } = {}) {
   if (!preserveStaticPreviewAssets) releaseStaticPreviewObjectUrls();
+  disposeWidgetMounts(previewWidgetDisposers);
   preview.innerHTML = markdownRenderer.render(source, { rixRuns: runs, rixCellIndex: 0 });
   renderMathInElement(preview, {
     delimiters: [
@@ -256,7 +281,16 @@ function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets
     ],
     throwOnError: false,
   });
-  enhanceSheetViews(preview, { onActivate: insertSheetAddress });
+  if (runtime) {
+    const roots = [...preview.querySelectorAll(".rix-preview-result")];
+    const visibleRuns = runs.filter((run) => run?.liveOutput && run.metadata.showOutput);
+    for (const [index, run] of visibleRuns.entries()) {
+      const root = roots[index];
+      if (root) mountNotebookWidgets(root, run.liveOutput.value, runtime, run.statements.at(-1)?.line || 1, previewWidgetDisposers);
+    }
+  } else {
+    enhanceSheetViews(preview, { onActivate: insertSheetAddress });
+  }
 }
 
 function setPreviewStale(stale) {
@@ -338,91 +372,6 @@ async function openHelp(section = "notebook") {
     helpContent.textContent = error instanceof Error ? error.message : String(error);
     if (!helpDialog.open) helpDialog.showModal();
   }
-}
-
-function parseFenceMetadata(header) {
-  const metadata = {
-    raw: header.trim(),
-    flags: new Set(),
-    execution: "flow",
-    role: "out",
-    showCode: false,
-    showOutput: true,
-    unknown: [],
-  };
-  for (const token of header.trim().split(/\s+/).filter(Boolean)) {
-    const normalized = token.toLowerCase();
-    if (normalized === "flow") {
-      metadata.flags.add("flow");
-      metadata.execution = "flow";
-    } else if (normalized === "singleton") {
-      metadata.flags.add("singleton");
-      metadata.execution = "singleton";
-    } else if (normalized === "refresh") {
-      metadata.flags.add("refresh");
-      metadata.execution = "refresh";
-    } else if (normalized === "expensive") {
-      metadata.flags.add("expensive");
-    } else if (normalized === "set") {
-      metadata.role = "set";
-      metadata.showCode = false;
-      metadata.showOutput = false;
-    } else if (normalized === "edu") {
-      metadata.role = "edu";
-      metadata.showCode = true;
-      metadata.showOutput = true;
-    } else if (normalized === "out") {
-      metadata.role = "out";
-      metadata.showCode = false;
-      metadata.showOutput = true;
-    } else {
-      metadata.unknown.push(token);
-    }
-  }
-  return metadata;
-}
-
-function extractRixCells(source) {
-  const cells = [];
-  const fencePattern = /^```rix(?:[ \t]+([^\n]*))?[ \t]*\n([\s\S]*?)^```[ \t]*$/gim;
-  let match;
-
-  let index = 0;
-  while ((match = fencePattern.exec(source)) !== null) {
-    const line = source.slice(0, match.index).split("\n").length;
-    cells.push({
-      index,
-      start: match.index,
-      end: fencePattern.lastIndex,
-      codeStart: source.indexOf("\n", match.index) + 1,
-      code: match[2],
-      codeLine: line + 1,
-      line,
-      metadata: parseFenceMetadata(match[1] || ""),
-    });
-    index += 1;
-  }
-
-  return cells;
-}
-
-function isInRixCell(source, position) {
-  return extractRixCells(source).some((cell) => (
-    position >= cell.codeStart && position <= cell.codeStart + cell.code.length
-  ));
-}
-
-function diagnosticForRixError(error, cell) {
-  const message = error instanceof Error ? error.message : String(error);
-  const match = message.match(/position (\d+)/);
-  const offset = Math.min(Number(match?.[1] ?? cell.code.length), cell.code.length);
-  const from = cell.codeStart + offset;
-  return {
-    from,
-    to: Math.min(from + 1, cell.codeStart + cell.code.length),
-    severity: "error",
-    message,
-  };
 }
 
 // The runtime parser is deliberately used here instead of the editor grammar:
@@ -511,280 +460,6 @@ function rixHoverTooltip(view, position) {
   };
 }
 
-function extractFencedRanges(source) {
-  const ranges = [];
-  const pattern = /^```[^\n]*\n[\s\S]*?^```[ \t]*$/gim;
-  let match;
-  while ((match = pattern.exec(source)) !== null) {
-    ranges.push({ start: match.index, end: pattern.lastIndex });
-  }
-  return ranges;
-}
-
-function extractInlineExpressions(source) {
-  const expressions = [];
-  const fences = extractFencedRanges(source);
-  let fenceIndex = 0;
-  let index = 0;
-
-  while (index < source.length) {
-    const fence = fences[fenceIndex];
-    if (fence && index >= fence.start) {
-      index = fence.end;
-      fenceIndex += 1;
-      continue;
-    }
-    if (source[index] !== "@" || source[index + 1] !== "{") {
-      index += 1;
-      continue;
-    }
-
-    let depth = 1;
-    let quote = null;
-    let escaped = false;
-    let cursor = index + 2;
-    for (; cursor < source.length && depth > 0; cursor += 1) {
-      const character = source[cursor];
-      if (quote) {
-        if (escaped) escaped = false;
-        else if (character === "\\") escaped = true;
-        else if (character === quote) quote = null;
-        continue;
-      }
-      if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === "{") {
-        depth += 1;
-      } else if (character === "}") {
-        depth -= 1;
-      }
-    }
-    if (depth !== 0) {
-      index += 2;
-      continue;
-    }
-    const end = cursor;
-    const expression = source.slice(index + 2, end - 1).trim();
-    if (expression) {
-      expressions.push({
-        start: index,
-        end,
-        expression,
-        line: source.slice(0, index).split("\n").length,
-      });
-    }
-    index = end;
-  }
-  return expressions;
-}
-
-function parseNotebookDocument(source) {
-  const cells = extractRixCells(source);
-  const inlines = extractInlineExpressions(source);
-  const nodes = [
-    ...cells.map((cell) => ({ type: "cell", start: cell.start, end: cell.end, value: cell })),
-    ...inlines.map((inline) => ({ type: "inline", start: inline.start, end: inline.end, value: inline })),
-  ].sort((left, right) => left.start - right.start);
-  const content = [];
-  let cursor = 0;
-  for (const node of nodes) {
-    if (node.start > cursor) content.push({ type: "markdown", start: cursor, end: node.start, source: source.slice(cursor, node.start) });
-    content.push(node);
-    cursor = node.end;
-  }
-  if (cursor < source.length) content.push({ type: "markdown", start: cursor, end: source.length, source: source.slice(cursor) });
-  return { source, cells, inlines, nodes, content };
-}
-
-function splitTopLevelStatements(source) {
-  const statements = [];
-  let start = null;
-  let depth = 0;
-  const openers = new Set(["(", "[", "{", "{!", "{=", "{?", "{;", "{|", "{:", "{..", "{@", "{#", "{$", "{^", "{>"]);
-  const closers = new Set([")", "]", "}"]);
-
-  for (const token of tokenize(source)) {
-    if (token.type === "End") break;
-    if (start === null) start = token.pos[1] ?? token.pos[0];
-    if (openers.has(token.value)) depth += 1;
-    if (closers.has(token.value)) depth = Math.max(0, depth - 1);
-
-    if (token.value === ";" && depth === 0) {
-      statements.push({ start, end: token.pos[2], code: source.slice(start, token.pos[2]).trim() });
-      start = null;
-    }
-  }
-
-  if (start !== null) {
-    statements.push({ start, end: source.length, code: source.slice(start).trim() });
-  }
-  return statements.filter((statement) => statement.code.length > 0);
-}
-
-function asRational(value, name) {
-  if (value instanceof Rational) return value;
-  if (value instanceof Integer) return new Rational(value);
-  throw new Error(`${name} must be an exact RiX number`);
-}
-
-function asInterval(value) {
-  if (value instanceof RationalInterval) return value;
-  throw new Error("Slider interval must be a RiX interval such as 1:5");
-}
-
-function asPositiveCount(value, name) {
-  if (!(value instanceof Integer) || value.value <= 0n) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  const count = Number(value.value);
-  if (!Number.isSafeInteger(count) || count > 10_000) {
-    throw new Error(`${name} must be at most 10000`);
-  }
-  return count;
-}
-
-function inferSliderConfig(args) {
-  let interval = new RationalInterval(-10, 10);
-  let start = null;
-  let step = null;
-  let steps = null;
-
-  if (args.length === 1 && args[0]?.type === "map") {
-    const entries = args[0].entries;
-    interval = entries.has("interval") ? asInterval(entries.get("interval")) : interval;
-    start = entries.has("start") ? asRational(entries.get("start"), "Slider start") : null;
-    if (entries.has("step") && entries.has("steps")) {
-      throw new Error("Slider accepts either step or steps, not both");
-    }
-    if (entries.has("step")) step = asRational(entries.get("step"), "Slider step");
-    if (entries.has("steps")) steps = asPositiveCount(entries.get("steps"), "Slider steps");
-  } else {
-    if (args.length > 3) throw new Error("Slider accepts interval, step-or-steps, and start");
-    if (args[0] !== undefined) interval = asInterval(args[0]);
-    if (args[1] !== undefined) {
-      const second = asRational(args[1], "Slider step-or-steps");
-      if (second.numerator === 0n) throw new Error("Slider step-or-steps cannot be zero");
-      const isInteger = second.denominator === 1n;
-      if (isInteger && second.numerator >= 3n) steps = asPositiveCount(new Integer(second.numerator), "Slider steps");
-      else step = second;
-    }
-    if (args[2] !== undefined) start = asRational(args[2], "Slider start");
-  }
-
-  const low = interval.low;
-  const high = interval.high;
-  const span = high.subtract(low);
-  if (span.numerator === 0n) throw new Error("Slider interval endpoints must differ");
-  if (step) {
-    if (step.numerator < 0n) step = step.negate();
-    const tentativeSteps = Math.floor(span.toNumber() / step.toNumber());
-    if (!Number.isFinite(tentativeSteps) || tentativeSteps < 1) {
-      throw new Error("Slider step must fit inside its interval");
-    }
-    steps = Math.min(tentativeSteps, 10_000);
-  } else {
-    steps ??= 20;
-    step = span.divide(new Integer(BigInt(steps)));
-  }
-  start ??= low.add(high).divide(new Integer(2));
-  const startIndex = Math.max(0, Math.min(steps, Math.round((start.toNumber() - low.toNumber()) / step.toNumber())));
-  return { low, high, step, steps, startIndex };
-}
-
-function createNotebookSlider(args, runtime) {
-  const config = inferSliderConfig(args);
-  const id = `${runtime.currentSourceId}:${runtime.sliderCounter++}`;
-  const index = Math.max(0, Math.min(
-    config.steps,
-    runtime.sliderOverrides.get(id) ?? config.startIndex,
-  ));
-  const value = config.low.add(config.step.multiply(new Integer(BigInt(index))));
-  let valueWidth = 1;
-  const widthSamples = Math.min(config.steps, 200);
-  for (let sample = 0; sample <= widthSamples; sample += 1) {
-    const candidate = Math.round((config.steps * sample) / widthSamples);
-    const candidateValue = config.low.add(config.step.multiply(new Integer(BigInt(candidate))));
-    valueWidth = Math.max(valueWidth, formatValue(candidateValue).length);
-  }
-  runtime.sliders.push({ ...config, id, index, value, valueWidth });
-  return value;
-}
-
-function makeNotebookRuntime(overrides = sliderOverrides, options = {}) {
-  const registry = createDefaultRegistry();
-  const runtime = {
-    registry,
-    context: new Context(),
-    sliderCounter: 0,
-    sliderOverrides: overrides,
-    sliders: [],
-    currentSourceId: "document",
-    currentSliderName: null,
-    mode: options.mode === "static" ? "static" : "live",
-    currentPublication: null,
-  };
-  const pluginCatalog = clonePluginCatalog(options.pluginCatalog || pluginCatalogTemplate);
-  const systemContext = createDefaultSystemContext({ frozen: false, pluginCatalog });
-  systemContext.registerHost("slider", {
-    impl(args) {
-      return createNotebookSlider(args, runtime);
-    },
-    doc: "Notebook-only interactive slider control",
-  });
-  const modeBlock = (mode) => ({
-    lazy: true,
-    impl(args, context, evaluate) {
-      if (args.length > 1) throw new Error(`.${mode} accepts at most one block`);
-      if (args.length === 1 && runtime.mode === mode) {
-        context.withSharedBody(args[0], () => evaluate(args[0]));
-      }
-      return null;
-    },
-    doc: `Evaluate a notebook block only in ${mode} mode`,
-  });
-  systemContext.registerHost("static", modeBlock("static"));
-  systemContext.registerHost("live", modeBlock("live"));
-  const outputCommand = (channel) => ({
-    lazy: true,
-    impl(args, _context, evaluate) {
-      if (args.length > 1) throw new Error(`.${channel} accepts zero or one argument`);
-      if (!runtime.currentPublication) throw new Error(`.${channel} may only be used while running a notebook cell`);
-      const target = channel === "out" ? "out" : channel === "staticout" ? "static" : "live";
-      if (target !== "out" && target !== runtime.mode) return null;
-      if (runtime.currentPublication[target].declared) throw new Error(`.${channel} may only be used once per cell`);
-      runtime.currentPublication[target] = {
-        declared: true,
-        suppressed: args.length === 0,
-        value: args.length === 0 ? null : evaluate(args[0]),
-      };
-      return null;
-    },
-    doc: "Choose the notebook publication output for this cell",
-  });
-  systemContext.registerHost("out", outputCommand("out"));
-  systemContext.registerHost("staticOut", outputCommand("staticout"));
-  systemContext.registerHost("liveOut", outputCommand("liveout"));
-  runtime.loadRixPlugin = ({ source, sourcePath, context, registry, systemContext: pluginSystemContext }) => (
-    parseAndEvaluate(source, {
-      context,
-      registry,
-      systemContext: pluginSystemContext,
-      file: sourcePath,
-    })
-  );
-  for (const id of options.plugins || configuredPlugins) {
-    pluginCatalog.load(id, {
-      context: runtime.context,
-      registry: runtime.registry,
-      systemContext,
-      loadRix: runtime.loadRixPlugin,
-    });
-  }
-  systemContext.freeze();
-  runtime.systemContext = systemContext;
-  return runtime;
-}
-
 function jumpToLine(line) {
   const target = editor.state.doc.line(Math.min(line, editor.state.doc.lines));
   editor.dispatch({ selection: { anchor: target.from }, scrollIntoView: true });
@@ -820,191 +495,28 @@ function appendOutput(statement, runtime) {
   value.className = "cell-result-value";
   if (statement.html) {
     value.innerHTML = statement.html;
-    const widgetSession = statement.value?.kind === "sheet" && statement.value.editable
-      ? createWidgetSession(statement.value)
-      : null;
-    enhanceSheetViews(value, {
-      onActivate: insertSheetAddress,
-      onHeaderEdit: widgetSession?.editMode === "formula" ? ({ axis, coordinate, label }) => {
-        try {
-          widgetSession.dispatch({ type: "sheet:header", axis, coordinate, label });
-          return { type: "result", revision: widgetSession.revision };
-        } catch (error) {
-          return { type: "error", text: error instanceof Error ? error.message : String(error) };
-        }
-      } : null,
-      onEdit: widgetSession ? ({ index, source: editSource, assignmentMode }) => {
-        try {
-          if (widgetSession.editMode === "formula") {
-            widgetSession.dispatch({
-              type: "sheet:formula",
-              index,
-              source: editSource,
-              assignmentMode,
-            });
-            const updates = widgetSession.cellUpdates(formatValue);
-            return {
-              type: "result",
-              value: widgetSession.formulaSheet.getFormula(index),
-              text: updates.find((entry) =>
-                entry.address === `${widgetSession.current().addressBase}[${index.join(",")}]`)?.text ?? "",
-              updates,
-              revision: widgetSession.revision,
-            };
-          }
-          const editedValue = parseAndEvaluate(editSource, {
-            context: runtime.context,
-            registry: runtime.registry,
-            systemContext: runtime.systemContext,
-            file: `<sheet edit at line ${statement.line}>`,
-          });
-          widgetSession.dispatch({ type: "sheet:set", index, value: editedValue });
-          return { type: "result", value: editedValue, text: formatValue(editedValue), revision: widgetSession.revision };
-        } catch (error) {
-          return { type: "error", text: error instanceof Error ? error.message : String(error) };
-        }
-      } : null,
-    });
-    if (value.querySelector(".rix-output-sheet")) {
+    mountNotebookWidgets(value, statement.value, runtime, statement.line, outputWidgetDisposers);
+    if (value.querySelector(".rix-output-sheet, .rix-output-control-panel, .rix-output-graphic[data-rix-interactive=\"true\"]")) {
       result.removeAttribute("tabindex");
       result.setAttribute("role", "group");
-      result.setAttribute("aria-label", `RiX result on line ${statement.line} with selectable sheet`);
+      result.setAttribute("aria-label", `Interactive RiX result on line ${statement.line}`);
     }
   }
   else value.textContent = statement.content.replaceAll("\n", " ↵ ");
   value.title = statement.content;
 
   result.append(lineNumber, source, value);
-  result.addEventListener("click", () => jumpToLine(statement.line));
+  result.addEventListener("click", (event) => {
+    if (event.target.closest("button, input, select, textarea, [data-rix-drag-target], td[data-rix-address]")) return;
+    jumpToLine(statement.line);
+  });
   result.addEventListener("keydown", (event) => {
+    if (event.target !== result) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     jumpToLine(statement.line);
   });
   output.append(result);
-}
-
-function executeCell(cell, runtime) {
-  const context = cell.metadata.execution === "singleton"
-    ? new Context()
-    : cell.metadata.execution === "refresh"
-      ? (runtime.context = new Context())
-      : runtime.context;
-  runtime.currentSourceId = `cell:${cell.line}`;
-  context.setEnv("__system_context__", runtime.systemContext);
-  context.setEnv("__registry__", runtime.registry);
-  context.setEnv("__source__", cell.code);
-  context.setEnv("__current_file__", `<notebook cell at line ${cell.line}>`);
-  context.setEnv("__plugin_load_rix__", runtime.loadRixPlugin);
-
-  const ast = parse(cell.code);
-  const irNodes = lower(ast);
-  const sources = splitTopLevelStatements(cell.code);
-  const statements = [];
-  let implicitOutput = { available: false, value: null };
-  runtime.currentPublication = {
-    out: { declared: false, suppressed: false, value: null },
-    static: { declared: false, suppressed: false, value: null },
-    live: { declared: false, suppressed: false, value: null },
-  };
-
-  for (const [index, irNode] of irNodes.entries()) {
-    const source = sources[index] || { start: irNode.pos?.[0] || 0, code: "<source unavailable>" };
-    const sourceLine = posToLineCol(cell.code, source.start).line;
-    const line = cell.codeLine + sourceLine - 1;
-    try {
-      const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*\.slider\s*\(/)?.[1] || "slider";
-      runtime.currentSliderName = sliderName;
-      const sliderStart = runtime.sliders.length;
-      const value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
-      for (const slider of runtime.sliders.slice(sliderStart)) {
-        slider.name = sliderName;
-        slider.line = line;
-      }
-      runtime.currentSliderName = null;
-      const hostCommand = irNode.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(irNode.args?.[0] || ""));
-      if (!hostCommand) implicitOutput = { available: true, value };
-      const format = (item) => formatValue(item);
-      statements.push({
-        line,
-        code: source.code,
-        content: format(value),
-        html: isOutputValue(value) ? renderOutputHtml(value, format) : null,
-        kind: "result",
-        position: cell.start + source.start,
-      });
-    } catch (error) {
-      runtime.currentSliderName = null;
-      statements.push({
-        line,
-        code: source.code,
-        content: error instanceof Error ? error.message : String(error),
-        kind: "error",
-        position: cell.start + source.start,
-      });
-      break;
-    }
-  }
-  const selected = runtime.mode === "static"
-    ? runtime.currentPublication.static.declared ? runtime.currentPublication.static : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput
-    : runtime.currentPublication.live.declared ? runtime.currentPublication.live : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput;
-  const publication = selected.available === false || selected.suppressed
-    ? null
-    : { value: selected.value, content: formatValue(selected.value), kind: "result" };
-  runtime.currentPublication = null;
-  return {
-    statements,
-    metadata: cell.metadata,
-    staticOutput: runtime.mode === "static" ? publication : null,
-    liveOutput: runtime.mode === "live" ? publication : null,
-  };
-}
-
-function executeInlineExpression(inline, runtime) {
-  const context = runtime.context;
-  runtime.currentSourceId = `inline:${inline.line}`;
-  context.setEnv("__system_context__", runtime.systemContext);
-  context.setEnv("__registry__", runtime.registry);
-  context.setEnv("__source__", inline.expression);
-  context.setEnv("__current_file__", `<inline RiX expression at line ${inline.line}>`);
-  context.setEnv("__plugin_load_rix__", runtime.loadRixPlugin);
-  let value;
-  const ast = parse(inline.expression);
-  const irNodes = lower(ast);
-  if (irNodes.length === 0) throw new Error("Inline RiX expression is empty");
-  const sliderStart = runtime.sliders.length;
-  for (const irNode of irNodes) {
-    value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
-  }
-  for (const slider of runtime.sliders.slice(sliderStart)) {
-    slider.name = "Slider";
-    slider.line = inline.line;
-  }
-  const content = formatValue(value);
-  return {
-    start: inline.start,
-    end: inline.end,
-    replacement: content,
-    statement: {
-      line: inline.line,
-      code: `@{${inline.expression}}`,
-      content,
-      kind: "result",
-      label: "Inline RiX",
-      position: inline.start,
-    },
-  };
-}
-
-function replaceInlineExpressions(source, inlineRuns) {
-  let cursor = 0;
-  let rendered = "";
-  for (const run of inlineRuns) {
-    rendered += source.slice(cursor, run.start);
-    rendered += run.replacement;
-    cursor = run.end;
-  }
-  return rendered + source.slice(cursor);
 }
 
 function executeDocument(source, options = {}) {
@@ -1014,54 +526,6 @@ function executeDocument(source, options = {}) {
     pluginCatalog: options.pluginCatalog || pluginCatalogTemplate,
     plugins: options.plugins || configuredPlugins,
   });
-}
-
-function escapeMarkdownCell(value) {
-  return String(value).replaceAll("|", "\\|").replaceAll("\n", "<br>");
-}
-
-function staticValueText(value) {
-  return formatValue(value);
-}
-
-function staticOutputMarkdown(value, { graphicReference = null, figureAlt = null } = {}) {
-  if (!isOutputValue(value)) return staticValueText(value);
-  if (value.kind === "text") return staticValueText(value.value);
-  if (value.kind === "paragraph") return value.children.map(staticValueText).join("");
-  if (value.kind === "heading") return `${"#".repeat(value.level)} ${staticValueText(value.content)}`;
-  if (value.kind === "fragment") {
-    return value.children.map((child) => staticOutputMarkdown(child, { graphicReference })).join("\n\n");
-  }
-  if (value.kind === "table") {
-    const headings = value.columns.map((column) => escapeMarkdownCell(column.label));
-    const rows = value.rows.map((row) => `| ${row.map((cell) => escapeMarkdownCell(staticValueText(cell))).join(" | ")} |`);
-    const table = [`| ${headings.join(" | ")} |`, `| ${headings.map(() => "---").join(" | ")} |`, ...rows].join("\n");
-    return [table, value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
-  }
-  if (value.kind === "grid") {
-    return gridLatex(value, formatValue);
-  }
-  if (value.kind === "graphic") {
-    if (!graphicReference) return formatValue(value);
-    return `![${figureAlt || "RiX graphic"}](${graphicReference(value)})`;
-  }
-  if (value.kind === "figure") {
-    const content = staticOutputMarkdown(value.content, {
-      graphicReference,
-      figureAlt: value.alt || value.caption || figureAlt,
-    });
-    return [content, value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
-  }
-  if (value.kind === "slide") {
-    const heading = value.title ? `## ${value.title}` : "";
-    const content = staticOutputMarkdown(value.content, { graphicReference });
-    const notes = value.notes ? `<!-- Speaker notes: ${value.notes} -->` : "";
-    return ["---", heading, content, notes].filter(Boolean).join("\n\n");
-  }
-  if (value.kind === "slides") {
-    return value.slides.map((slide) => staticOutputMarkdown(slide, { graphicReference })).join("\n\n");
-  }
-  return formatValue(value);
 }
 
 function staticPreviewGraphicUrl(graphic) {
@@ -1075,21 +539,6 @@ function staticCellReplacement(run, graphicReference) {
   if (!run?.staticOutput) return "";
   if (run.staticOutput.kind === "error") return `> **RiX export error:** ${run.staticOutput.content}`;
   return staticOutputMarkdown(run.staticOutput.value, { graphicReference });
-}
-
-function renderStaticDocument(document, runs, inlineRuns, options = {}) {
-  const inlineByStart = new Map(inlineRuns.map((run) => [run.start, run]));
-  const graphicReference = options.graphicReference || null;
-  return document.content.map((node) => {
-    if (node.type === "markdown") return node.source;
-    if (node.type === "inline") return inlineByStart.get(node.start)?.replacement || "";
-    const run = runs[node.value.index];
-    if (options.liveCellIndexes?.has(node.value.index) && options.liveCellPlaceholder) {
-      return `\n\n<!-- rix-live-cell:${node.value.index} -->\n\n`;
-    }
-    const replacement = staticCellReplacement(run, graphicReference);
-    return replacement ? `\n\n${replacement}\n\n` : "";
-  }).join("");
 }
 
 function quartoRuntimeSourceMarkup(cell) {
@@ -1180,7 +629,7 @@ function renderSliderControls(sliders) {
 
 function renderDocumentPreview(documentRun) {
   if (previewMode === "live") {
-    renderMarkdown(documentRun.renderedSource, documentRun.runs);
+    renderMarkdown(documentRun.renderedSource, documentRun.runs, { runtime: documentRun.runtime });
     return;
   }
   const staticRun = executeDocument(documentRun.document.source, { mode: "static", sliderOverrides: new Map() });
@@ -1219,6 +668,7 @@ async function runNotebook() {
   const source = editor.state.doc.toString();
   await prepareJavaScriptPlugins(source);
   const documentRun = executeDocument(source);
+  disposeWidgetMounts(outputWidgetDisposers);
   output.replaceChildren();
 
   if (documentRun.cells.length === 0 && documentRun.inlineRuns.length === 0) {

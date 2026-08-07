@@ -11,9 +11,12 @@ filesystem, dialog, Git, or macOS imports.
 * `workbench.js` mounts a standalone CodeMirror editor, result list, and
   Markdown/KaTeX preview in any browser DOM.
 
-The native app is a consumer, not a prerequisite: it provides a Tauri
-`DocumentStore` from `../../../docshell/src/tauri-document-store.js`, then adds project/sidebar,
-menus, dialogs, recents, Git, and export destination UI around this web core.
+The native app is a consumer, not a prerequisite: it uses the same RiX engine
+and shared output-widget protocol with a Tauri `DocumentStore` from
+`../../../docshell/src/tauri-document-store.js`, then supplies its own richer
+project/sidebar, menus, dialogs, recents, Git, export, and editor workbench.
+The portable `mountNotebookWeb` workbench is used by the browser host and is
+available to other compact hosts.
 For a hosted version, replace that store and callbacks with HTTP-backed
 implementations; no engine or workbench changes are required.
 

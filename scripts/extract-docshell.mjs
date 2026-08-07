@@ -23,8 +23,8 @@ async function readWebviewMarkup(name) {
 const values = {
   "product.name": manifest.product?.name,
   "product.browserName": manifest.product?.browserName,
-  "entrypoint.native": `../../${manifest.entrypoints?.native}`,
-  "entrypoint.browser": `../../${manifest.entrypoints?.browser}`,
+  "entrypoint.native": "./entrypoint.js",
+  "entrypoint.browser": "./entrypoint.js",
   "webview.nativeMarkup": await readWebviewMarkup("nativeMarkup"),
   "webview.browserMarkup": await readWebviewMarkup("browserMarkup"),
   "files.browserAccept": [...manifest.files.primaryExtensions, ...manifest.files.archiveExtensions]
@@ -53,6 +53,14 @@ for (const host of ["native", "browser"]) {
   await writeFile(
     path.join(outputDirectory, "index.html"),
     render(await readFile(templatePath, "utf8"), `${host}/index.html`),
+  );
+  const entrypoint = manifest.entrypoints?.[host];
+  if (!entrypoint || path.isAbsolute(entrypoint) || entrypoint.split(/[\\/]/).includes("..")) {
+    throw new Error(`DocShell entrypoints.${host} must be a repository-relative path`);
+  }
+  await writeFile(
+    path.join(outputDirectory, "entrypoint.js"),
+    `import ${JSON.stringify(`../../${entrypoint}`)};\n`,
   );
 }
 

@@ -4,11 +4,11 @@ import {
   Context,
   createDefaultRegistry,
   createDefaultSystemContext,
-  enhanceSheetViews,
   evaluate,
   formatValue,
   isOutputValue,
   lower,
+  mountOutputWidgets,
   parse,
   parseAndEvaluate,
   renderOutputHtml,
@@ -23,6 +23,7 @@ if (payloadElement || sourceCellElements.length) {
   const payload = payloadElement ? JSON.parse(payloadElement.textContent) : null;
   const controls = document.querySelector("#rix-live-controls");
   const sliderOverrides = new Map();
+  let widgetDisposers = [];
 
   installStyles();
   document.documentElement.classList.add("rix-live-ready");
@@ -222,17 +223,18 @@ if (payloadElement || sourceCellElements.length) {
   }
 
   function run() {
+    for (const dispose of widgetDisposers.splice(0)) dispose();
     const cells = payload ? extractCells(payload.source) : extractSourceCells(sourceCellElements);
     const sliders = [];
     const runtime = makeRuntime(sliders);
     for (const cell of cells) {
       const result = executeCell(cell, runtime);
-      if (cell.metadata.role !== "set" && document.querySelector(`[data-rix-live-cell="${cell.index}"]`)) renderWidget(cell, result);
+      if (cell.metadata.role !== "set" && document.querySelector(`[data-rix-live-cell="${cell.index}"]`)) renderWidget(cell, result, runtime);
     }
     renderControls(sliders);
   }
 
-  function renderWidget(cell, execution) {
+  function renderWidget(cell, execution, runtime) {
     const widget = document.querySelector(`[data-rix-live-cell="${cell.index}"]`);
     if (!widget) return;
     const showCode = widget.dataset.rixShowCode === undefined
@@ -257,7 +259,18 @@ if (payloadElement || sourceCellElements.length) {
       throwOnError: false,
     });
     normalizeLiveTables(widget);
-    enhanceSheetViews(widget);
+    if (result?.value) {
+      widgetDisposers.push(mountOutputWidgets(widget, result.value, {
+        format: formatValue,
+        render: renderLiveValue,
+        evaluateEdit: (source, { mode }) => parseAndEvaluate(mode === "formula" ? `@{ ${source} }` : source, {
+          context: runtime.context,
+          registry: runtime.registry,
+          systemContext: runtime.systemContext,
+          file: `<live widget in cell ${cell.index + 1}>`,
+        }),
+      }));
+    }
   }
 
   function normalizeLiveTables(widget) {

@@ -1,12 +1,16 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
+import { notebookManualChunks } from "./vite.shared.js";
 
 export default defineConfig({
   root: fileURLToPath(new URL("./.docshell-build/native", import.meta.url)),
   publicDir: fileURLToPath(new URL("./public", import.meta.url)),
+  esbuild: { keepNames: true },
   build: {
     outDir: fileURLToPath(new URL("./dist", import.meta.url)),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 650,
+    rollupOptions: { output: { manualChunks: notebookManualChunks } },
   },
   server: {
     host: "127.0.0.1",
@@ -22,6 +26,7 @@ export default defineConfig({
       "@lezer/common",
       "@lezer/highlight",
       "@lezer/lr",
+      "@ratmath/core",
     ],
     alias: {
       "@ratmath/core": fileURLToPath(new URL("../packages/core/index.js", import.meta.url)),

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createWidgetSession, formatValue, parseAndEvaluate } from "../../../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "../bundled-plugin-catalog.js";
 import { createRixNotebookEngine, parseFenceMetadata } from "./rix-engine.js";
+import { publicationOutputHtml } from "./workbench.js";
 
 function engine() {
   return createRixNotebookEngine({ pluginCatalog: createNotebookBundledPluginCatalog() });
@@ -17,6 +18,20 @@ test("RiX engine honors static-only publication code", () => {
   const run = engine().executeDocument("```rix\nx := 2;\n.static({; x := 5; });\nx;\n```", { mode: "static" });
   expect(run.runs[0].staticOutput.content).toBe("5");
   expect(run.staticRenderedSource).toContain("5");
+});
+
+test("the bundled browser starter evaluates its exact slider without split core identities", () => {
+  const source = "```rix\nradius := .slider(1:5, 1/10, 3);\narea := 22/7 * radius^2;\narea;\n```\n\nThe current area is @{area}.";
+  const run = engine().executeDocument(source);
+  expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
+  expect(run.sliders).toHaveLength(1);
+  expect(run.renderedSource).toContain("The current area is 28..2/7.");
+});
+
+test("explicit structured publication output renders from the selected value", () => {
+  const run = engine().executeDocument("```rix\n.out(.Table([\"x\"], [[1]]));\n```");
+  expect(run.runs[0].liveOutput.value.kind).toBe("table");
+  expect(publicationOutputHtml(run.runs[0])).toContain("<table");
 });
 
 test("fence metadata stays a UI-independent document concern", () => {

@@ -1,7 +1,8 @@
 # RiX Notebook host review
 
-RiX Notebook has two hosts around one RiX-specific WebView/editor. Their
-differences are intentional host capabilities, not missing editor features.
+RiX Notebook has two host-specific workbenches around one RiX notebook engine,
+document model, and output-widget protocol. Their differences are intentional
+host capabilities rather than separate language implementations.
 
 | Capability | Native Tauri host | Browser host | Boundary |
 | --- | --- | --- | --- |
@@ -13,7 +14,8 @@ differences are intentional host capabilities, not missing editor features.
 | Git commit and Trash | Native commands | Not available | Optional native host capability |
 | Plugin directory grants and approvals | Native settings | Bundled plugins only | Native host capability consumed by the RiX webview |
 | Export destination | Chosen filesystem directory; full live/static assets | Downloaded static export/ZIP | RiX webview/export service with host storage |
-| RiX evaluation, widgets, preview, and theme | Same WebView implementation | Same WebView implementation | `webview/source/` |
+| RiX evaluation and widgets | Shared engine and widget protocol | Shared engine and widget protocol | `webview/source/notebook-web/rix-engine.js` and RiX output tools |
+| Editor, preview, and theme | Native feature workbench | Compact portable workbench | Host-specific consumers under `webview/source/` |
 
 The browser does not need emulations for Git, Trash, native window state, or
 arbitrary directory/plugin grants. A future host can advertise those optional
@@ -24,7 +26,7 @@ small `NotebookEngine`, `NotebookHost`, and `DocumentStore` interfaces.
 
 ```text
 rix-nb/
-├── docshell/                 reusable future submodule
+├── docshell/                 reusable installed submodule
 │   ├── native/               Tauri host implementation
 │   ├── shells/               native and browser HTML hosts
 │   ├── src/                  contracts and storage/file services
@@ -39,7 +41,6 @@ rix-nb/
 ```
 
 `src-tauri/src/lib.rs` is deliberately a thin forwarding module. The HTML
-inputs are likewise generated from DocShell templates. This leaves the Tauri
-package identity/icons and RiX WebView implementation in the application repo,
-while the reusable host can move to a separate repository at the unchanged
-`docshell/` path.
+inputs are likewise generated from DocShell templates. The Tauri package
+identity/icons and RiX workbenches remain in the application repository, while
+the reusable host is installed from its separate repository at `docshell/`.
