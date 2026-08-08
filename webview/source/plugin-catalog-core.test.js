@@ -5,6 +5,7 @@ import { configuredPluginDirectories, pluginTutorialIdFromPath, requestedPluginI
 test("the notebook bundles approved Phase 1 output plugins", () => {
   const ids = createNotebookBundledPluginCatalog().list().map(({ id }) => id);
   expect(ids).toContain("float");
+  expect(ids).toContain("algebra");
   expect(ids).toContain("draw");
   expect(ids).toContain("plot");
   expect(ids).toContain("geometry");

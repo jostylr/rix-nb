@@ -65,6 +65,9 @@ b := .geometry.Point(4,0);
 .geometry.Draw([a,b,.geometry.Circle(a,b)], {= view=[-1,-1,5,5], size=[240,240] });
 .Plugin.Load("terminal-ascii");
 .terminalAscii.Render(.Table(["name", "value"], [["half", 1/2]])).Get("content");
+.Plugin.Load("algebra");
+p := .algebra.Polynomial([1,-6,11,-6]);
+.algebra.Grid(.algebra.SyntheticDivide(p,2));
 \`\`\``;
   const run = engine().executeDocument(source);
   expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
@@ -76,6 +79,7 @@ b := .geometry.Point(4,0);
   expect(run.outputStatements[11]?.html).toContain('id="result"');
   expect(run.outputStatements[15]?.html).toContain("<svg");
   expect(run.outputStatements[17]?.content).toContain("+------+");
+  expect(run.outputStatements[20]?.html).toContain("rix-output-grid");
 });
 
 test("the notebook preserves address-aware Sheet output", () => {
@@ -157,7 +161,7 @@ cube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};
 
 test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
   for (const [id, directory = id] of [
-    ["float"], ["numerics"], ["oracle"], ["draw"], ["geometry"], ["plot"],
+    ["float"], ["numerics"], ["oracle"], ["algebra"], ["draw"], ["geometry"], ["plot"],
     ["terminal-ascii", "render-terminal-ascii"],
   ]) {
     const source = await Bun.file(new URL(`../../../../rix/plugins/${directory}/tutorial.md`, import.meta.url)).text();
