@@ -53,6 +53,10 @@ test("bundled Phase 1 plugins execute through the notebook host", () => {
 .draw.Circle([10, 10], 4);
 .Plugin.Load("plot");
 .plot.Polynomial([1, 0, -1], [-2, 2]);
+.Plugin.Load("data");
+rows := .data.Relation(["name", "value"], [["half", 1/2]]);
+.Plugin.Load("csv");
+.csv.Render(rows).Get("content");
 \`\`\``;
   const run = engine().executeDocument(source);
   expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
@@ -60,6 +64,7 @@ test("bundled Phase 1 plugins execute through the notebook host", () => {
   expect(run.outputStatements[3]?.content).toContain("circle");
   expect(run.outputStatements[5]?.content).toContain("Graphic");
   expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
+  expect(run.outputStatements[9]?.content).toBe("name,value\nhalf,1/2\n");
 });
 
 test("the notebook preserves address-aware Sheet output", () => {
