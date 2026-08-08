@@ -10,6 +10,7 @@ test("the notebook bundles approved Phase 1 output plugins", () => {
   expect(ids).toContain("geometry");
   expect(ids).toContain("data");
   expect(ids).toContain("document");
+  expect(ids).toContain("terminal-ascii");
   expect(ids).toContain("csv");
 });
 
