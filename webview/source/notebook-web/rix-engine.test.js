@@ -57,6 +57,8 @@ test("bundled Phase 1 plugins execute through the notebook host", () => {
 rows := .data.Relation(["name", "value"], [["half", 1/2]]);
 .Plugin.Load("csv");
 .csv.Render(rows).Get("content");
+.Plugin.Load("document");
+.document.Report("Notebook report", [.Heading(2, "Result", "result")]);
 \`\`\``;
   const run = engine().executeDocument(source);
   expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
@@ -65,6 +67,7 @@ rows := .data.Relation(["name", "value"], [["half", 1/2]]);
   expect(run.outputStatements[5]?.content).toContain("Graphic");
   expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
   expect(run.outputStatements[9]?.content).toBe("name,value\nhalf,1/2\n");
+  expect(run.outputStatements[11]?.html).toContain('id="result"');
 });
 
 test("the notebook preserves address-aware Sheet output", () => {
