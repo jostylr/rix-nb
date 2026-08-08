@@ -7,6 +7,7 @@ test("the notebook bundles approved Phase 1 output plugins", () => {
   expect(ids).toContain("float");
   expect(ids).toContain("draw");
   expect(ids).toContain("plot");
+  expect(ids).toContain("geometry");
   expect(ids).toContain("data");
   expect(ids).toContain("document");
   expect(ids).toContain("csv");

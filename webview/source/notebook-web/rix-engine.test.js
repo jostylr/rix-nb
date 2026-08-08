@@ -59,6 +59,10 @@ rows := .data.Relation(["name", "value"], [["half", 1/2]]);
 .csv.Render(rows).Get("content");
 .Plugin.Load("document");
 .document.Report("Notebook report", [.Heading(2, "Result", "result")]);
+.Plugin.Load("geometry");
+a := .geometry.Point(0,0);
+b := .geometry.Point(4,0);
+.geometry.Draw([a,b,.geometry.Circle(a,b)], {= view=[-1,-1,5,5], size=[240,240] });
 \`\`\``;
   const run = engine().executeDocument(source);
   expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
@@ -68,6 +72,7 @@ rows := .data.Relation(["name", "value"], [["half", 1/2]]);
   expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
   expect(run.outputStatements[9]?.content).toBe("name,value\nhalf,1/2\n");
   expect(run.outputStatements[11]?.html).toContain('id="result"');
+  expect(run.outputStatements[15]?.html).toContain("<svg");
 });
 
 test("the notebook preserves address-aware Sheet output", () => {
@@ -148,7 +153,7 @@ cube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};
 });
 
 test("implemented plugin tutorial cells execute unchanged in the notebook", async () => {
-  for (const id of ["float", "numerics", "oracle", "draw", "plot"]) {
+  for (const id of ["float", "numerics", "oracle", "draw", "geometry", "plot"]) {
     const source = await Bun.file(new URL(`../../../../rix/plugins/${id}/tutorial.md`, import.meta.url)).text();
     const run = engine().executeDocument(source);
     expect(run.outputStatements.length, id).toBeGreaterThan(0);
