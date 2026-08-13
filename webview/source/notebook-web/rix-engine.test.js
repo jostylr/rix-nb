@@ -94,7 +94,7 @@ test("the notebook preserves address-aware Sheet output", () => {
 });
 
 test("the notebook exposes live Sheet values to a host-owned WidgetSession", () => {
-  const source = "```rix\nmatrix := {:1x2: 1, 2};\n.Sheet(.Bind(matrix));\n```";
+  const source = "```rix\nmatrix := {:1x2: 1, 2}.WithScalarDomain(:Rational);\n.Sheet(.Bind(matrix));\n```";
   const run = engine().executeDocument(source);
   const statement = run.outputStatements.at(-1);
   const widget = createWidgetSession(statement.value);
@@ -134,7 +134,7 @@ $$point := {: 30,40};
   widget.dispose();
 });
 
-test("the notebook preserves interactive tensor-plane controls", () => {
+test("the notebook preserves interactive Shaped-plane controls", () => {
   const source = `\`\`\`rix
 cube := {:2x3x2: 1, 2, 3; 4, 5, 6 ;; 7, 8, 9; 10, 11, 12};
 .Sheet(cube, {=
