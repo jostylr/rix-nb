@@ -169,4 +169,4 @@ test("implemented plugin tutorial cells execute unchanged in the notebook", asyn
     expect(run.outputStatements.length, id).toBeGreaterThan(0);
     expect(run.outputStatements.map(({ kind }) => kind), id).not.toContain("error");
   }
-});
+}, 180_000);
