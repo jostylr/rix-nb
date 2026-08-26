@@ -1,8 +1,9 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
-import { notebookManualChunks } from "./vite.shared.js";
+import { notebookManualChunks, rixSourcePlugin } from "./vite.shared.js";
 
 export default defineConfig({
+  plugins: [rixSourcePlugin()],
   root: fileURLToPath(new URL("./.docshell-build/native", import.meta.url)),
   publicDir: fileURLToPath(new URL("./public", import.meta.url)),
   esbuild: { keepNames: true },

@@ -7,26 +7,9 @@
  */
 import { PluginCatalog } from "../../../rix/src/index.js";
 import { installBundledPlugins } from "../../../rix/plugins/bundled.js";
-import { installBrowserApproxMathPlugin } from "../../../rix/plugins/float/browser-installer.js";
-
-const approxMathMetadata = {
-  id: "float",
-  description: "JavaScript IEEE-754 Float conversion and optional approximate math.",
-  kind: "host",
-  mount: "float",
-  exports: ["Float", "Interval", "Round", "Floor", "Ceiling", "Abs", "Sqrt", "Sin", "Cos", "Tan", "Log", "Exp"],
-  groups: ["ApproximateMath", "Float"],
-  permissions: [],
-  defaultEnabled: false,
-};
 
 export function createNotebookBundledPluginCatalog() {
   const catalog = new PluginCatalog();
   installBundledPlugins(catalog);
-  catalog.addMetadata(approxMathMetadata, {
-    sourcePath: "bundled:float",
-    kind: "host",
-  });
-  catalog.registerInstaller("float", installBrowserApproxMathPlugin);
   return catalog;
 }

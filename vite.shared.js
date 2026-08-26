@@ -1,3 +1,17 @@
+import { readFile } from "node:fs/promises";
+
+/** Load RiX plugin sources through Vite with the same text-module contract Bun uses. */
+export function rixSourcePlugin() {
+  return {
+    name: "rix-source-text",
+    enforce: "pre",
+    async load(id) {
+      if (!id.split("?", 1)[0].endsWith(".rix")) return null;
+      return `export default ${JSON.stringify(await readFile(id.split("?", 1)[0], "utf8"))};`;
+    },
+  };
+}
+
 export function notebookManualChunks(id) {
   const path = id.replaceAll("\\", "/");
   if (path.includes("/node_modules/katex/")) return "katex";

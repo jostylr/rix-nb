@@ -73,7 +73,7 @@ p := .algebra.Polynomial([1,-6,11,-6]);
   expect(run.outputStatements.map(({ kind }) => kind)).not.toContain("error");
   expect(run.outputStatements[1]?.content).toBe("33/100");
   expect(run.outputStatements[3]?.content).toContain("circle");
-  expect(run.outputStatements[5]?.content).toContain("Graphic");
+  expect(run.outputStatements[5]?.content).toContain("[Plot: polynomial");
   expect(run.runs[0]?.statements[5]?.html).toContain("<svg");
   expect(run.outputStatements[9]?.content).toBe("name,value\nhalf,1/2\n");
   expect(run.outputStatements[11]?.html).toContain('id="result"');

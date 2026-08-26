@@ -1,0 +1,10 @@
+format_version = 1
+title = "RiX Graphics Priorities"
+quick_export_scope = "project"
+notebooks = [
+  "01-geometry-authoring/notebook.toml",
+  "02-points-of-interest/notebook.toml",
+  "03-dense-performance/notebook.toml",
+  "04-advanced-3d/notebook.toml",
+  "05-semantic-animation/notebook.toml"
+]
