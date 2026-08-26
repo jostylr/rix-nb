@@ -14,6 +14,10 @@ MoveFrame(x,origin) -> .Graphics.Graphic([420,160],[
 ]);
 .Timeline.Sequence({=
   title="Exact point motion",frameDurations=[1/3,1/3,1/3,1/3,1/3],
+  tracks=[.Timeline.Track({=
+    id="captions",kind="caption",
+    keyframes=[{= frame=1,value="begin at negative two"},{= frame=3,value="cross the origin"},{= frame=5,value="finish at positive two"}]
+  })],
   transition={= mode=:crossfade,duration=1/6,properties=[:opacity,:position] },
   entries=[{: MoveFrame,[-2,-1,0,1,2]}]
 });
@@ -82,8 +86,9 @@ states := [
 
 ## 5. Animate an exact orbit-camera track
 
-Each frame is a deterministic Scene3D snapshot. A future camera-track schema
-should retain the camera itself and avoid materializing redundant scene frames.
+Each frame is a deterministic Scene3D snapshot. The typed camera track also
+retains its exact key cameras independently, so a capable host can avoid
+materializing redundant presentation state.
 
 ```rix out
 .Plugin.Load("scene3d");
@@ -100,6 +105,14 @@ OrbitFrame(turn,origin) -> {;
 };
 .Timeline.Sequence({=
   title="Exact Cayley camera orbit",duration=3,
+  tracks=[.Timeline.Track({=
+    id="orbit-camera",kind="camera",interpolation="linear",
+    keyframes=[
+      {= frame=1,value=.scene3d.OrbitCamera([0,0,1/2],{= radius=5,height=2,turn=-1 }) },
+      {= frame=3,value=.scene3d.OrbitCamera([0,0,1/2],{= radius=5,height=2,turn=0 }) },
+      {= frame=5,value=.scene3d.OrbitCamera([0,0,1/2],{= radius=5,height=2,turn=1 }) }
+    ]
+  })],
   entries=[{: OrbitFrame,[-1,-1/2,0,1/2,1]}]
 });
 ```

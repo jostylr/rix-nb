@@ -7,7 +7,10 @@ from the RiX Web toolbar.
 
 ## 1. Construct a line and circle from selected points
 
-This is the direct acceptance case for Point, Line, and Circle tools.
+This is the direct acceptance case for Point, Line, Circle, Intersection,
+Distance, and a source-defined exact Transform tool. Create two lines before
+selecting Intersection; distance accepts any two retained points, while
+Transform accepts any drawable retained object.
 
 ```rix out
 .Plugin.Load("geometry");
@@ -29,11 +32,23 @@ CircleTool1() -> .Graphics.Action({=
   id="geometry-author-circle",target=$$authorGraph,
   action=(current,ids)->.geometry.AddCircle(current,ids[1],ids[2]),children=[]
 });
+IntersectionTool1() -> .Graphics.Action({=
+  id="geometry-author-intersection",target=$$authorGraph,
+  action=(current,ids)->.geometry.AddIntersection(current,ids[1],ids[2]),children=[]
+});
+MeasurementTool1() -> .Graphics.Action({=
+  id="geometry-author-measurement",target=$$authorGraph,
+  action=(current,ids)->.geometry.AddMeasurement(current,ids[1],ids[2]),children=[]
+});
+TransformTool1() -> .Graphics.Action({=
+  id="geometry-author-transform",target=$$authorGraph,
+  action=(current,ids)->.geometry.AddTransform(current,ids[1],.geometry.Translate(1,1)),children=[]
+});
 UndoTool1() -> .Graphics.Action({= id="geometry-author-undo",target=$$authorGraph,action=current->.geometry.Undo(current),children=[] });
 RedoTool1() -> .Graphics.Action({= id="geometry-author-redo",target=$$authorGraph,action=current->.geometry.Redo(current),children=[] });
 $$authorView := .geometry.AuthoringWorkbench($authorGraph,[
-  PointTool1(),LineTool1(),CircleTool1(),UndoTool1(),RedoTool1()
-],{= view=[-5,-4,5,5],size=[640,480] });
+  PointTool1(),LineTool1(),CircleTool1(),IntersectionTool1(),MeasurementTool1(),TransformTool1(),UndoTool1(),RedoTool1()
+],{= view=[-5,-4,5,5],size=[640,480],transformLabel="Translate (1,1)" });
 $authorView;
 ```
 

@@ -2,8 +2,9 @@
 
 Desmos, GeoGebra, JSXGraph, and Manim provide complementary surface, solid,
 camera, and material examples. These RiX analogues exercise what is implemented
-and make the missing implicit-surface, clipping, volume, texture, and shadow
-policies concrete.
+and make the missing implicit-surface, volume, texture, and shadow policies
+concrete. Exact clip planes and advanced material descriptors are retained for
+capable hosts; the portable flat executor reports its unsupported lowering.
 
 ## 1. Adaptive saddle surface
 
@@ -33,18 +34,21 @@ surface2 := .scene3d.ParametricSurface(
 });
 ```
 
-## 3. Lit mesh with explicit lights
+## 3. Clipped mesh with explicit material and lights
 
-The next material pass should add shadows and richer surface properties while
-keeping this deterministic flat-lit snapshot as a portable fallback.
+The material retains roughness, metallic, and emissive intent. The clip plane
+is attached to every realized primitive under its clip group.
 
 ```rix out
 mesh3 := .scene3d.Mesh(
   [[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[0,0,2]],
   [[1,2,5],[2,3,5],[3,4,5],[4,1,5],[1,4,3],[1,3,2]],
-  {= id="pyramid",label="pyramid mesh",color="#d97706" }
+  {= id="pyramid",label="pyramid mesh",material=.scene3d.Material({=
+       color="#d97706",roughness=1/3,metallic=2/3,emissive="#110000"
+     }) }
 );
-.scene3d.Scene([mesh3],{=
+clip3 := .scene3d.ClipPlane([1,0,0],0);
+.scene3d.Scene([.scene3d.Clip([mesh3],[clip3])],{=
   camera=.scene3d.PerspectiveCamera([4,4,3],[0,0,1]),
   lights=[.scene3d.AmbientLight("#ffffff",1/4),.scene3d.DirectionalLight([1,1,-2],{= intensity=3/4 })]
 });
