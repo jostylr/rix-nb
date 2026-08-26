@@ -10,14 +10,14 @@ The project is also an acceptance corpus:
 
 1. **Visual geometry authoring** — constructions that the selection-driven
    toolbar should be able to create without editing source.
-2. **Automatic points of interest** — currently explicit marks and evidence
-   records that should become automatically discoverable semantic events.
+2. **Automatic points of interest** — stable exact, certified, and sampled
+   records with independent label-density controls.
 3. **Dense performance** — bounded stress scenes for render switching, spatial
    indexing, workers, and GPU picking.
-4. **Advanced 3D** — current retained analogues for future implicit surfaces,
-   clipping, volumes, materials, and higher-dimensional projection.
-5. **Semantic animation** — Timeline scenes that establish matching, camera,
-   construction-step, caption, and video-export requirements.
+4. **Advanced 3D** — exact geometric clipping plus retained analogues for future
+   implicit surfaces, volumes, richer materials, and higher-dimensional projection.
+5. **Semantic animation** — Timeline scenes and manifests for matching, camera,
+   paths, construction steps, formulas, captions, and media-export requirements.
 
 ## Host relationship
 

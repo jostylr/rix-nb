@@ -1,22 +1,19 @@
 # Automatic semantic points of interest
 
 Desmos automatically exposes roots, intersections, and extrema, while GeoGebra
-provides corresponding commands. `.plot.PolynomialPOI` now supplies exact,
-proof-carrying intercept, linear-root, and quadratic root/vertex records;
-`pointsOfInterest=1` turns those records into labels and marks. Higher-degree,
-cross-series, and discontinuity discovery remain explicit acceptance targets.
+provides corresponding commands. `.plot.PolynomialPOI` supplies exact,
+proof-carrying low-degree results plus exact sampled roots, certified sign-change
+brackets, and explicitly sampled extremum candidates for higher degrees.
+Stable POI ids and `poiLabels`/`poiMaxLabels` keep discovery separate from label
+density. Cross-series and discontinuity discovery remain acceptance targets.
 
 ## 1. Three exact roots of a cubic
 
 ```rix out
 .Plugin.Load("plot");
 .plot.Polynomial([1,0,-1,0],[-2,2],{=
-  title="Three exact roots",
-  marks=[
-    {= point=[-1,0],label="exact root -1" },
-    {= point=[0,0],label="exact root 0" },
-    {= point=[1,0],label="exact root 1" }
-  ]
+  title="Three exact roots",samples=9,pointsOfInterest=1,
+  poiLabels=:roots,poiMaxLabels=3
 });
 ```
 

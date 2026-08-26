@@ -3,8 +3,10 @@
 Desmos, GeoGebra, JSXGraph, and Manim provide complementary surface, solid,
 camera, and material examples. These RiX analogues exercise what is implemented
 and make the missing implicit-surface, volume, texture, and shadow policies
-concrete. Exact clip planes and advanced material descriptors are retained for
-capable hosts; the portable flat executor reports its unsupported lowering.
+concrete. Exact clip planes now filter points, cut segments, and split and
+retriangulate crossing meshes during retained realization. Advanced material
+descriptors remain available to capable hosts; the portable flat executor
+reports the shading features it cannot realize.
 
 ## 1. Adaptive saddle surface
 
@@ -37,7 +39,8 @@ surface2 := .scene3d.ParametricSurface(
 ## 3. Clipped mesh with explicit material and lights
 
 The material retains roughness, metallic, and emissive intent. The clip plane
-is attached to every realized primitive under its clip group.
+is attached to every affected primitive, whose exact realized coordinates are
+already clipped before an SVG or WebGL projection consumes them.
 
 ```rix out
 mesh3 := .scene3d.Mesh(

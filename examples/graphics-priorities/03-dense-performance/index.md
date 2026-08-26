@@ -2,8 +2,9 @@
 
 JSXGraph and Desmos demonstrate responsive dense browser scenes; these bounded
 studies establish RiX workloads for renderer switching, spatial indexes,
-worker cancellation, incremental updates, and GPU picking. RiX Web now builds
-a bounded reusable screen-space bucket index for fallback SVG hit testing;
+worker cancellation, incremental updates, and GPU picking. RiX Web now publishes
+`rix.graphics.density-policy@1` thresholds and builds a bounded reusable
+screen-space bucket index with explicit construction/query work records;
 the worker, incremental-update, and GPU-picking targets remain future work.
 
 ## 1. A high-sample algebraic curve

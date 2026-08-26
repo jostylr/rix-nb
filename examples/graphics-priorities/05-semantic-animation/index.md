@@ -3,6 +3,9 @@
 Manim supplies the main transformation and camera references; Desmos sliders,
 actions, and tickers and JSXGraph glider animation supply the interactive
 references. Every RiX frame below keeps an exact state and stable identities.
+Path, construction, and formula tracks retain semantic intent independently of
+the pixels; `.Timeline.Manifest(timeline)` materializes their active value and
+source keyframe for every frame.
 
 ## 1. Move one semantic point along an exact path
 
@@ -14,10 +17,16 @@ MoveFrame(x,origin) -> .Graphics.Graphic([420,160],[
 ]);
 .Timeline.Sequence({=
   title="Exact point motion",frameDurations=[1/3,1/3,1/3,1/3,1/3],
-  tracks=[.Timeline.Track({=
-    id="captions",kind="caption",
-    keyframes=[{= frame=1,value="begin at negative two"},{= frame=3,value="cross the origin"},{= frame=5,value="finish at positive two"}]
-  })],
+  tracks=[
+    .Timeline.Track({=
+      id="captions",kind="caption",
+      keyframes=[{= frame=1,value="begin at negative two"},{= frame=3,value="cross the origin"},{= frame=5,value="finish at positive two"}]
+    }),
+    .Timeline.Track({=
+      id="moving-point-path",kind="path",target="moving-point",interpolation="linear",
+      keyframes=[{= frame=1,value=[-2,0]},{= frame=3,value=[0,0]},{= frame=5,value=[2,0]}]
+    })
+  ],
   transition={= mode=:crossfade,duration=1/6,properties=[:opacity,:position] },
   entries=[{: MoveFrame,[-2,-1,0,1,2]}]
 });
@@ -59,6 +68,15 @@ ConstructionFrame(step,origin) -> {;
 .Timeline.Sequence({=
   title="Circumcircle construction",frameDurations=[1/2,1/2,1/2,1],
   markers=[{= frame=1,label="points" },{= frame=4,label="circumcircle" }],
+  tracks=[.Timeline.Track({=
+    id="construction-steps",kind="construction",
+    keyframes=[
+      {= frame=1,value={= step="place three points"} },
+      {= frame=2,value={= step="draw the base"} },
+      {= frame=3,value={= step="construct the perpendicular bisector"} },
+      {= frame=4,value={= step="construct the circumcircle"} }
+    ]
+  })],
   entries=[{: ConstructionFrame,[1,2,3,4]}]
 });
 ```
@@ -79,6 +97,10 @@ states := [
 ];
 .Timeline.Sequence({=
   title="Declared-safe presentation transform",duration=2,
+  tracks=[.Timeline.Track({=
+    id="formula",kind="formula",target="semantic-label",
+    keyframes=[{= frame=1,value="r = 25"},{= frame=2,value="r = 55"},{= frame=3,value="r = 85"}]
+  })],
   transition={= mode=:crossfade,duration=1/4,properties=[:opacity,:fill,:stroke,:position] },
   entries=[{: StyleFrame,states}]
 });
