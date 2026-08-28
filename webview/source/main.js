@@ -1,4 +1,4 @@
-import { EditorState } from "@codemirror/state";
+import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, hoverTooltip } from "@codemirror/view";
 import { autocompletion } from "@codemirror/autocomplete";
 import { linter } from "@codemirror/lint";
@@ -8,6 +8,7 @@ import MarkdownIt from "markdown-it";
 import katex from "katex";
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/dist/katex.min.css";
+import "../../../rix/styles/output-widgets.css";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -15,6 +16,8 @@ import { copyFile, exists, mkdir, readDir, readTextFile, writeFile, writeTextFil
 import { Integer } from "@ratmath/core";
 import {
   createDefaultSystemContext,
+  createGeometryAuthoringProgram,
+  encodeGeometryConstructionSource,
   enhanceSheetViews,
   formatValue,
   isOutputValue,
@@ -42,9 +45,11 @@ import { applyProjectTheme, DEFAULT_PROJECT_THEME } from "./theme.js";
 import {
   createRixNotebookEngine,
   diagnosticForRixError,
+  disposeNotebookRun,
   extractRixCells,
   isInRixCell,
   parseFenceMetadata,
+  whiteboardSourceNamespace,
   renderStaticDocument,
   staticOutputMarkdown,
 } from "./notebook-web/rix-engine.js";
@@ -128,6 +133,7 @@ const javaScriptPluginMessage = document.querySelector("#javascript-plugin-messa
 const documentStore = createTauriDocumentStore();
 const projects = new ProjectManager(documentStore);
 let latestRuns = [];
+let latestDocumentRun = null;
 let activeRightPane = "results";
 let previewMode = "live";
 let loadingDocument = false;
@@ -260,9 +266,33 @@ function widgetEvaluation(source, runtime, line, mode) {
   });
 }
 
-function mountNotebookWidgets(root, value, runtime, line, disposers) {
+function replaceWhiteboardSource(graph, cell) {
+  if (!cell?.metadata?.flags?.has("whiteboard")) return;
+  const namesPrefix = whiteboardSourceNamespace(editor.state.doc.toString(), cell);
+  const graphName = `${namesPrefix}seed`;
+  const encoded = encodeGeometryConstructionSource(graph, { graphName });
+  if (!encoded.supported) {
+    setStatus(`Whiteboard source was not changed: ${encoded.unsupported.map((item) => item.reason).join("; ")}`);
+    return;
+  }
+  const replacement = `.Plugin.Load("geometry");\n${createGeometryAuthoringProgram(encoded.source, {
+    graphName,
+    namesPrefix,
+    actionPrefix: `geometry-board-${namesPrefix}`,
+  })}`;
+  editor.dispatch({
+    changes: { from: cell.codeStart, to: cell.codeStart + cell.code.length, insert: replacement },
+    annotations: Transaction.userEvent.of("input.rix-whiteboard"),
+  });
+  setStatus("Whiteboard edit recorded in the RiX cell; editor undo restores both source and diagram");
+}
+
+function mountNotebookWidgets(root, value, runtime, line, disposers, observed = null, cell = null) {
   disposers.push(mountOutputWidgets(root, value, {
     format: formatValue,
+    observe: observed?.observe || null,
+    onGraphicAction: (_detail, result) => replaceWhiteboardSource(result?.value, cell),
+    onGraphicPosition: (_detail, result) => replaceWhiteboardSource(result?.value, cell),
     onActivate: insertSheetAddress,
     evaluateEdit: (source, { mode }) => widgetEvaluation(source, runtime, line, mode),
   }));
@@ -286,7 +316,7 @@ function renderMarkdown(source, runs = latestRuns, { preserveStaticPreviewAssets
     const visibleRuns = runs.filter((run) => run?.liveOutput && run.metadata.showOutput);
     for (const [index, run] of visibleRuns.entries()) {
       const root = roots[index];
-      if (root) mountNotebookWidgets(root, run.liveOutput.value, runtime, run.statements.at(-1)?.line || 1, previewWidgetDisposers);
+      if (root) mountNotebookWidgets(root, run.liveOutput.value, runtime, run.statements.at(-1)?.line || 1, previewWidgetDisposers, run.liveOutput.observed, run.cell);
     }
   } else {
     enhanceSheetViews(preview, { onActivate: insertSheetAddress });
@@ -495,7 +525,7 @@ function appendOutput(statement, runtime) {
   value.className = "cell-result-value";
   if (statement.html) {
     value.innerHTML = statement.html;
-    mountNotebookWidgets(value, statement.value, runtime, statement.line, outputWidgetDisposers);
+    mountNotebookWidgets(value, statement.value, runtime, statement.line, outputWidgetDisposers, statement.observed, statement.cell);
     if (value.querySelector(".rix-output-sheet, .rix-output-control-panel, .rix-output-graphic[data-rix-interactive=\"true\"]")) {
       result.removeAttribute("tabindex");
       result.setAttribute("role", "group");
@@ -507,7 +537,7 @@ function appendOutput(statement, runtime) {
 
   result.append(lineNumber, source, value);
   result.addEventListener("click", (event) => {
-    if (event.target.closest("button, input, select, textarea, [data-rix-drag-target], td[data-rix-address]")) return;
+    if (event.target.closest("a, button, input, select, textarea, summary, details, canvas, svg, [data-rix-drag-target], [data-rix-graphic-action], [data-rix-geometry-object], td[data-rix-address]")) return;
     jumpToLine(statement.line);
   });
   result.addEventListener("keydown", (event) => {
@@ -668,6 +698,8 @@ async function runNotebook() {
   const source = editor.state.doc.toString();
   await prepareJavaScriptPlugins(source);
   const documentRun = executeDocument(source);
+  disposeNotebookRun(latestDocumentRun);
+  latestDocumentRun = documentRun;
   disposeWidgetMounts(outputWidgetDisposers);
   output.replaceChildren();
 
@@ -2218,3 +2250,4 @@ async function initializeNotebook() {
 }
 
 initializeNotebook().catch(showError);
+window.addEventListener("pagehide", () => disposeNotebookRun(latestDocumentRun));

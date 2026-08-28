@@ -46,3 +46,16 @@ test("every interactive notebook host mounts the shared widget protocol", async 
     expect(await readFile(resolve(root, relativePath), "utf8"), relativePath).toContain("mountOutputWidgets");
   }
 });
+
+test("editor hosts persist marked whiteboard edits through ordinary source transactions", async () => {
+  for (const relativePath of [
+    "webview/source/main.js",
+    "webview/source/notebook-web/workbench.js",
+  ]) {
+    const source = await readFile(resolve(root, relativePath), "utf8");
+    expect(source, relativePath).toContain('flags?.has("whiteboard")');
+    expect(source, relativePath).toContain("encodeGeometryConstructionSource");
+    expect(source, relativePath).toContain("input.rix-whiteboard");
+    expect(source, relativePath).toContain("onGraphicAction");
+  }
+});

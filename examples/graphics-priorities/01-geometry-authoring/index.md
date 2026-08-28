@@ -12,7 +12,7 @@ Distance, Transform, and Constrained Move. Create two lines before selecting
 Intersection; constrained motion selects a free point and a line, then projects
 the canvas target exactly onto that line.
 
-```rix out
+```rix whiteboard out
 .Plugin.Load("geometry");
 g0 := .geometry.ConstructionGraph([]);
 g1 := .geometry.AddPoint(g0,.geometry.Point(-2,0),{= id=:a });

@@ -191,6 +191,20 @@ report := .Table(["root"], [[root]]);
 ```
 ````
 
+An interactive geometry cell can also use the `whiteboard` flag, for example
+````markdown
+```rix whiteboard out
+.Plugin.Load("geometry");
+graph := .geometry.ConstructionGraph([]);
+.geometry.AuthoringWorkbench(graph, [])
+```
+````
+Point placement, construction actions, constrained movement, undo, and redo
+are then persisted by replacing that fence with canonical RiX construction
+source in one editor transaction. Normal editor undo therefore restores both
+the previous source and rendered construction. Serialization fails closed for
+custom derived nodes that do not provide a portable recipe.
+
 This example uses the slider interactively in live mode and pins `root` to 1
 only for the static pathway. Fence roles are `set` (invisible), `out` (results
 only, the default), and `edu` (code and results); execution modes are `flow`

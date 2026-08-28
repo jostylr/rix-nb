@@ -5,6 +5,7 @@ import { configureLocalDocumentStorage, listLocalDocuments, loadLocalDocument, r
 import { createZipProject, findProjectRoot, openZipProject } from "../../../docshell/src/browser/zip-project.js";
 import "../../../docshell/styles/tokens.css";
 import "../../../docshell/styles/browser.css";
+import "../../../../rix/styles/output-widgets.css";
 import "../styles.css";
 import "katex/dist/katex.min.css";
 import MarkdownIt from "markdown-it";

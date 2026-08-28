@@ -1,7 +1,9 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
+import { rixSourcePlugin } from "./vite.shared.js";
 
 export default defineConfig({
+  plugins: [rixSourcePlugin()],
   publicDir: false,
   esbuild: {
     keepNames: true,

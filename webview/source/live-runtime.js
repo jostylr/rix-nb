@@ -1,10 +1,12 @@
 import { Integer, Rational, RationalInterval } from "@ratmath/core";
 import renderMathInElement from "katex/contrib/auto-render";
+import outputWidgetStyles from "../../../rix/styles/output-widgets.css?inline";
 import {
   Context,
   createDefaultRegistry,
   createDefaultSystemContext,
   evaluate,
+  evaluateObserved,
   formatValue,
   isOutputValue,
   lower,
@@ -24,6 +26,7 @@ if (payloadElement || sourceCellElements.length) {
   const controls = document.querySelector("#rix-live-controls");
   const sliderOverrides = new Map();
   let widgetDisposers = [];
+  let observedResults = [];
 
   installStyles();
   document.documentElement.classList.add("rix-live-ready");
@@ -196,10 +199,19 @@ if (payloadElement || sourceCellElements.length) {
     for (const node of lower(parse(cell.code))) {
       try {
         runtime.currentSliderName = sourceNameForNode(cell.code, results.length);
-        const value = evaluate(node, context, runtime.registry, runtime.systemContext);
-        results.push({ value, error: null });
         const hostCommand = node.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(node.args?.[0] || ""));
-        if (!hostCommand) implicitOutput = { available: true, value };
+        const command = String(node.args?.[0] || "").toLowerCase();
+        const publicationTarget = command === "out" ? "out" : command === "liveout" ? "live" : null;
+        const observed = evaluateObserved(node, context, runtime.registry, runtime.systemContext, publicationTarget ? {
+          selectValue: (value) => runtime.currentPublication[publicationTarget]?.declared
+            ? runtime.currentPublication[publicationTarget].value
+            : value,
+        } : {});
+        observedResults.push(observed);
+        const value = observed.value;
+        results.push({ value, observed, error: null });
+        if (publicationTarget && runtime.currentPublication[publicationTarget]?.declared) runtime.currentPublication[publicationTarget].observed = observed;
+        if (!hostCommand) implicitOutput = { available: true, value, observed };
         runtime.currentSliderName = null;
       } catch (error) {
         runtime.currentSliderName = null;
@@ -212,7 +224,7 @@ if (payloadElement || sourceCellElements.length) {
       : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput;
     const liveResult = selected.available === false || selected.suppressed
       ? null
-      : { value: selected.value, error: null };
+      : { value: selected.value, observed: selected.observed || null, error: null };
     runtime.currentPublication = null;
     return { results, liveResult };
   }
@@ -224,6 +236,7 @@ if (payloadElement || sourceCellElements.length) {
 
   function run() {
     for (const dispose of widgetDisposers.splice(0)) dispose();
+    for (const observed of observedResults.splice(0)) observed.dispose?.();
     const cells = payload ? extractCells(payload.source) : extractSourceCells(sourceCellElements);
     const sliders = [];
     const runtime = makeRuntime(sliders);
@@ -263,6 +276,7 @@ if (payloadElement || sourceCellElements.length) {
       widgetDisposers.push(mountOutputWidgets(widget, result.value, {
         format: formatValue,
         render: renderLiveValue,
+        observe: result.observed?.observe || null,
         evaluateEdit: (source, { mode }) => parseAndEvaluate(mode === "formula" ? `@{ ${source} }` : source, {
           context: runtime.context,
           registry: runtime.registry,
@@ -328,7 +342,7 @@ if (payloadElement || sourceCellElements.length) {
     if (document.querySelector("#rix-live-styles")) return;
     const style = document.createElement("style");
     style.id = "rix-live-styles";
-    style.textContent = ".rix-live-ready .rix-static,.rix-live-ready .rix-runtime-source,.rix-live-ready [data-rix-source-cell]{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{overflow:auto;margin:1rem 0}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output .rix-output-table{display:inline-table!important;width:auto!important;max-width:100%;table-layout:auto}.rix-live-output th,.rix-live-output td{width:auto!important;padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}.rix-output-sheet{display:inline-grid;max-width:100%;gap:.35rem;font-variant-numeric:tabular-nums}.rix-output-sheet-title{margin:0;font:600 14px system-ui,sans-serif}.rix-output-sheet-location{min-height:1.35em;color:#657080;font:12px system-ui,sans-serif}.rix-output-sheet-plane-controls{display:flex;flex-wrap:wrap;gap:.4rem .65rem;padding:.42rem .5rem;border:1px solid #dbe2ea;border-radius:4px;background:#f8fafc}.rix-output-sheet-plane-controls label{display:inline-flex;align-items:center;gap:.35rem;color:#486078;font:600 11px system-ui,sans-serif}.rix-output-sheet-plane-controls select{min-width:3rem;padding:.16rem .35rem;border:1px solid #b8c5d4;border-radius:4px;background:#fff;color:#28313c;font:inherit}.rix-output-sheet table{border:1px solid #cfd8e5;background:#fff}.rix-output-sheet th,.rix-output-sheet td{min-width:3.4rem;padding:.3rem .5rem;border:1px solid #dbe2ea;text-align:right;white-space:nowrap}.rix-output-sheet th{color:#486078;background:#edf3fa;font:600 12px system-ui,sans-serif}.rix-output-sheet td{cursor:cell;outline:0}.rix-output-sheet td:hover{background:#f5f8fc}.rix-output-sheet td:focus,.rix-output-sheet td.rix-sheet-cell-selected{background:#eef2ff;box-shadow:inset 0 0 0 2px #6366f1}";
+    style.textContent = `${outputWidgetStyles}\n.rix-live-ready .rix-static,.rix-live-ready .rix-runtime-source,.rix-live-ready [data-rix-source-cell]{display:none}.rix-live-controls{display:grid;gap:.55rem;margin:1rem 0;padding:.8rem;background:#f4f7fb;border:1px solid #cbd9e9;border-radius:6px}.rix-live-slider{display:grid;grid-template-columns:auto minmax(8rem,1fr) auto;align-items:center;gap:.65rem;font:14px system-ui,sans-serif}.rix-live-slider input{accent-color:#35557b}.rix-live-widget{margin:1rem 0}.rix-live-source summary{cursor:pointer;color:#35557b}.rix-live-source pre,.rix-live-output pre,.rix-live-error{overflow:auto;padding:.8rem;background:#f4f2ec;border-radius:5px}.rix-live-math-grid{overflow:auto;margin:1rem 0}.rix-live-error{color:#8a2520;background:#fbe9e7}.rix-live-output table{border-collapse:collapse}.rix-live-output .rix-output-table{display:inline-table!important;width:auto!important;max-width:100%;table-layout:auto}.rix-live-output th,.rix-live-output td{width:auto!important;padding:.3rem .5rem;border:1px solid #cfd8e5}.rix-live-output th{background:#edf3fa}.rix-live-output svg{display:block;max-width:100%;height:auto}.rix-output-sheet{display:inline-grid;max-width:100%;gap:.35rem;font-variant-numeric:tabular-nums}.rix-output-sheet-title{margin:0;font:600 14px system-ui,sans-serif}.rix-output-sheet-location{min-height:1.35em;color:#657080;font:12px system-ui,sans-serif}.rix-output-sheet-plane-controls{display:flex;flex-wrap:wrap;gap:.4rem .65rem;padding:.42rem .5rem;border:1px solid #dbe2ea;border-radius:4px;background:#f8fafc}.rix-output-sheet-plane-controls label{display:inline-flex;align-items:center;gap:.35rem;color:#486078;font:600 11px system-ui,sans-serif}.rix-output-sheet-plane-controls select{min-width:3rem;padding:.16rem .35rem;border:1px solid #b8c5d4;border-radius:4px;background:#fff;color:#28313c;font:inherit}.rix-output-sheet table{border:1px solid #cfd8e5;background:#fff}.rix-output-sheet th,.rix-output-sheet td{min-width:3.4rem;padding:.3rem .5rem;border:1px solid #dbe2ea;text-align:right;white-space:nowrap}.rix-output-sheet th{color:#486078;background:#edf3fa;font:600 12px system-ui,sans-serif}.rix-output-sheet td{cursor:cell;outline:0}.rix-output-sheet td:hover{background:#f5f8fc}.rix-output-sheet td:focus,.rix-output-sheet td.rix-sheet-cell-selected{background:#eef2ff;box-shadow:inset 0 0 0 2px #6366f1}`;
     style.textContent += '.rix-output-sheet td[data-rix-state="error"]{position:relative;background:#fff1f2;box-shadow:inset 0 0 0 1px #e11d48}.rix-output-sheet td[data-rix-state="error"]::after{content:"!";position:absolute;top:1px;right:3px;color:#be123c;font:700 10px/1 system-ui,sans-serif}.rix-output-sheet td[data-rix-state="error"]:focus,.rix-output-sheet td[data-rix-state="error"].rix-sheet-cell-selected{background:#fff1f2;box-shadow:inset 0 0 0 2px #e11d48}';
     style.textContent += '.rix-output-drag-point{cursor:grab;outline:none;filter:drop-shadow(0 1px 2px rgb(15 23 42/.35))}.rix-output-drag-point:hover,.rix-output-drag-point:focus{stroke:#fff;stroke-width:3;filter:drop-shadow(0 0 4px #7c3aed)}.rix-output-drag-point-active{cursor:grabbing}.rix-output-graphic-status{display:block;margin-top:.3rem;color:#6d28d9;font:11px/1.35 system-ui,sans-serif}';
     document.head.append(style);

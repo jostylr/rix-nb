@@ -20,6 +20,24 @@ available to other compact hosts.
 For a hosted version, replace that store and callbacks with HTTP-backed
 implementations; no engine or workbench changes are required.
 
+Add the `whiteboard` flag to an output fence when graphic edits should become
+source edits:
+
+````markdown
+```rix whiteboard out
+.Plugin.Load("geometry");
+graph := .geometry.ConstructionGraph([]);
+.geometry.AuthoringWorkbench(graph, [])
+```
+````
+
+Geometry actions then serialize the recipe-complete construction back into
+that fence with one CodeMirror transaction. Editor undo restores the source
+and diagram together. Several whiteboard cells can coexist: each regenerated
+cell receives stable, cell-scoped bindings and action identifiers. A custom
+derived node without a serializable recipe fails closed and leaves the source
+unchanged.
+
 ```js
 import { createRixNotebookEngine } from "./notebook-web/rix-engine.js";
 import { mountNotebookWeb } from "./notebook-web/workbench.js";

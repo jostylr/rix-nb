@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createWidgetSession, formatValue, parseAndEvaluate } from "../../../../rix/src/index.js";
 import { createNotebookBundledPluginCatalog } from "../bundled-plugin-catalog.js";
-import { createRixNotebookEngine, parseFenceMetadata } from "./rix-engine.js";
+import { createRixNotebookEngine, disposeNotebookRun, parseFenceMetadata, whiteboardSourceNamespace } from "./rix-engine.js";
 import { publicationOutputHtml } from "./workbench.js";
 
 function engine() {
@@ -36,6 +36,47 @@ test("explicit structured publication output renders from the selected value", (
 
 test("fence metadata stays a UI-independent document concern", () => {
   expect(parseFenceMetadata("singleton edu")).toMatchObject({ execution: "singleton", role: "edu", showCode: true });
+  expect(parseFenceMetadata("whiteboard out").flags.has("whiteboard")).toBe(true);
+});
+
+test("whiteboard source namespaces survive cell reordering and avoid collisions", () => {
+  const existing = { code: "$$geometryboardcell4graph := graph;" };
+  expect(whiteboardSourceNamespace("", existing)).toBe("geometryboardcell4");
+  expect(whiteboardSourceNamespace("geometryboardcell4seed := 1;\ngeometryboardcell8graph := 2;", { code: "graph := 1;" }))
+    .toBe("geometryboardcell9");
+});
+
+test("notebook publications retain the observed output handle", () => {
+  const run = engine().executeDocument(`\`\`\`rix
+$$amount := 2;
+$$view := .Text($amount);
+$view;
+\`\`\``);
+  const observed = run.runs[0].liveOutput.observed;
+  const values = [];
+  observed.observe((value) => values.push(formatValue(value)));
+  parseAndEvaluate("$amount := 7", {
+    context: run.runtime.context,
+    registry: run.runtime.registry,
+    systemContext: run.runtime.systemContext,
+  });
+  expect(values).toEqual(["7"]);
+  disposeNotebookRun(run);
+  parseAndEvaluate("$amount := 8", {
+    context: run.runtime.context,
+    registry: run.runtime.registry,
+    systemContext: run.runtime.systemContext,
+  });
+  expect(values).toHaveLength(1);
+});
+
+test("static graphic publication includes its comprehensive text alternative", () => {
+  const run = engine().executeDocument(`\`\`\`rix
+.Graphics.Graphic([100,80],[.Graphics.Circle([50,40],10)]);
+\`\`\``, { mode: "static" });
+  expect(run.staticRenderedSource).toContain("**Graphic description:**");
+  expect(run.staticRenderedSource).toContain("Circle centered at");
+  disposeNotebookRun(run);
 });
 
 test("a bundled tutorial plugin can be preloaded and explicitly loaded again", () => {

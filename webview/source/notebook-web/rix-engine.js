@@ -3,7 +3,9 @@ import {
   Context,
   createDefaultRegistry,
   createDefaultSystemContext,
+  createGraphicsTextPlan,
   evaluate,
+  evaluateObserved,
   formatValue,
   isOutputValue,
   lower,
@@ -25,7 +27,7 @@ export function parseFenceMetadata(header = "") {
     if (["flow", "singleton", "refresh"].includes(normalized)) {
       metadata.flags.add(normalized);
       metadata.execution = normalized;
-    } else if (normalized === "expensive") metadata.flags.add(normalized);
+    } else if (["expensive", "whiteboard"].includes(normalized)) metadata.flags.add(normalized);
     else if (normalized === "set") Object.assign(metadata, { role: "set", showCode: false, showOutput: false });
     else if (normalized === "edu") Object.assign(metadata, { role: "edu", showCode: true, showOutput: true });
     else if (normalized === "out") Object.assign(metadata, { role: "out", showCode: false, showOutput: true });
@@ -47,6 +49,16 @@ export function extractRixCells(source) {
 
 export function isInRixCell(source, position) {
   return extractRixCells(source).some((cell) => position >= cell.codeStart && position <= cell.codeStart + cell.code.length);
+}
+
+export function whiteboardSourceNamespace(source, cell) {
+  const existing = cell?.code?.match(/\b(geometryboardcell\d+)(?:seed|graph)\b/i)?.[1];
+  if (existing) return existing.toLowerCase();
+  let largest = 0;
+  for (const match of String(source).matchAll(/\bgeometryboardcell(\d+)(?:seed|graph)\b/gi)) {
+    largest = Math.max(largest, Number(match[1]));
+  }
+  return `geometryboardcell${largest + 1}`;
 }
 
 export function diagnosticForRixError(error, cell) {
@@ -184,18 +196,34 @@ function executeCell(cell, runtime) {
   for (const [index, irNode] of irNodes.entries()) {
     const source = sources[index] || { start: irNode.pos?.[0] || 0, code: "<source unavailable>" }; const line = cell.codeLine + posToLineCol(cell.code, source.start).line - 1;
     try {
-      const sliderStart = runtime.sliders.length; const value = evaluate(irNode, context, runtime.registry, runtime.systemContext);
+      const sliderStart = runtime.sliders.length;
+      const hostCommand = irNode.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(irNode.args?.[0] || ""));
+      const publicationTarget = hostCommand
+        ? String(irNode.args?.[0] || "").toLowerCase() === "out"
+          ? "out"
+          : String(irNode.args?.[0] || "").toLowerCase() === "staticout"
+            ? "static"
+            : String(irNode.args?.[0] || "").toLowerCase() === "liveout"
+              ? "live"
+              : null
+        : null;
+      const observed = evaluateObserved(irNode, context, runtime.registry, runtime.systemContext, publicationTarget ? {
+        selectValue: (value) => runtime.currentPublication[publicationTarget]?.declared
+          ? runtime.currentPublication[publicationTarget].value
+          : value,
+      } : {});
+      const value = observed.value;
       const sliderName = source.code.match(/^\s*([a-z][a-zA-Z0-9_]*)\s*:=\s*\.slider\s*\(/)?.[1] || "slider";
       for (const slider of runtime.sliders.slice(sliderStart)) Object.assign(slider, { name: sliderName, line });
-      const hostCommand = irNode.fn === "SYS_CALL" && ["static", "live", "out", "staticout", "liveout"].includes(String(irNode.args?.[0] || ""));
-      if (!hostCommand) implicitOutput = { available: true, value };
-      statements.push({ line, code: source.code, value, content: formatValue(value), html: isOutputValue(value) ? renderOutputHtml(value, formatValue) : null, kind: "result", position: cell.start + source.start });
+      if (publicationTarget && runtime.currentPublication[publicationTarget]?.declared) runtime.currentPublication[publicationTarget].observed = observed;
+      if (!hostCommand) implicitOutput = { available: true, value, observed };
+      statements.push({ line, code: source.code, value, observed, content: formatValue(value), html: isOutputValue(value) ? renderOutputHtml(value, formatValue) : null, kind: "result", position: cell.start + source.start });
     } catch (error) { statements.push({ line, code: source.code, content: error instanceof Error ? error.message : String(error), kind: "error", position: cell.start + source.start }); break; }
   }
   const channel = runtime.mode === "static" ? "static" : "live";
   const selected = runtime.currentPublication[channel].declared ? runtime.currentPublication[channel] : runtime.currentPublication.out.declared ? runtime.currentPublication.out : implicitOutput;
-  const publication = selected.available === false || selected.suppressed ? null : { value: selected.value, content: formatValue(selected.value), kind: "result" };
-  runtime.currentPublication = null; return { statements, metadata: cell.metadata, staticOutput: runtime.mode === "static" ? publication : null, liveOutput: runtime.mode === "live" ? publication : null };
+  const publication = selected.available === false || selected.suppressed ? null : { value: selected.value, observed: selected.observed || null, content: formatValue(selected.value), kind: "result" };
+  runtime.currentPublication = null; return { cell, statements, metadata: cell.metadata, staticOutput: runtime.mode === "static" ? publication : null, liveOutput: runtime.mode === "live" ? publication : null };
 }
 
 function executeInlineExpression(inline, runtime) {
@@ -210,6 +238,16 @@ function executeInlineExpression(inline, runtime) {
 function replaceInlineExpressions(source, runs) { let cursor = 0; let rendered = ""; for (const run of runs) { rendered += source.slice(cursor, run.start) + run.replacement; cursor = run.end; } return rendered + source.slice(cursor); }
 
 function escapeMarkdownCell(value) { return String(value).replaceAll("|", "\\|").replaceAll("\n", "<br>"); }
+function graphicTextMarkdown(value) {
+  const plan = createGraphicsTextPlan(value, formatValue);
+  const details = [
+    `> **Graphic description:** ${plan.summary}`,
+    ...plan.relations.map((relation) => `> - ${relation.summary}`),
+    ...plan.objects.slice(0, 25).map((object) => `> - ${object.id}: ${object.description}`),
+  ];
+  if (plan.objects.length > 25) details.push(`> - ${plan.objects.length - 25} additional retained objects`);
+  return details.join("\n");
+}
 export function staticOutputMarkdown(value, { graphicReference = null, figureAlt = null } = {}) {
   if (!isOutputValue(value)) return formatValue(value);
   if (value.kind === "text") return formatValue(value.value);
@@ -218,7 +256,12 @@ export function staticOutputMarkdown(value, { graphicReference = null, figureAlt
   if (value.kind === "fragment") return value.children.map((child) => staticOutputMarkdown(child, { graphicReference })).join("\n\n");
   if (value.kind === "table") { const headings = value.columns.map((column) => escapeMarkdownCell(column.label)); const rows = value.rows.map((row) => `| ${row.map((cell) => escapeMarkdownCell(formatValue(cell))).join(" | ")} |`); return [[`| ${headings.join(" | ")} |`, `| ${headings.map(() => "---").join(" | ")} |`, ...rows].join("\n"), value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n"); }
   if (value.kind === "grid") return gridLatex(value, formatValue);
-  if (value.kind === "graphic") return graphicReference ? `![${figureAlt || "RiX graphic"}](${graphicReference(value)})` : formatValue(value);
+  if (value.kind === "graphic") {
+    const description = graphicTextMarkdown(value);
+    return graphicReference
+      ? `![${figureAlt || createGraphicsTextPlan(value, formatValue).summary}](${graphicReference(value)})\n\n${description}`
+      : description;
+  }
   if (value.kind === "figure") return [staticOutputMarkdown(value.content, { graphicReference, figureAlt: value.alt || value.caption || figureAlt }), value.caption ? `*${value.caption}*` : ""].filter(Boolean).join("\n\n");
   if (value.kind === "slide") return ["---", value.title ? `## ${value.title}` : "", staticOutputMarkdown(value.content, { graphicReference }), value.notes ? `<!-- Speaker notes: ${value.notes} -->` : ""].filter(Boolean).join("\n\n");
   if (value.kind === "slides") return value.slides.map((slide) => staticOutputMarkdown(slide, { graphicReference })).join("\n\n");
@@ -240,9 +283,19 @@ export function createRixNotebookEngine(configuration = {}) {
     getCompletions() { const context = createDefaultSystemContext({ pluginCatalog: this.pluginCatalog }); return context.getAllNames().map((name) => ({ label: name, type: "function", detail: `.${name}`, info: context.get(name)?.doc || "RiX system capability" })); },
     executeDocument(source, options = {}) {
       const document = parseNotebookDocument(source); const runtime = makeNotebookRuntime(this, options.sliderOverrides || new Map(), options); const runs = new Array(document.cells.length); const inlineRuns = []; const outputStatements = [];
-      for (const event of document.nodes) if (event.type === "cell") { const cell = event.value; try { runs[cell.index] = executeCell(cell, runtime); } catch (error) { runs[cell.index] = { metadata: cell.metadata, statements: [{ line: cell.codeLine, code: cell.code.trim(), content: error instanceof Error ? error.message : String(error), kind: "error", position: cell.start }] }; } outputStatements.push(...runs[cell.index].statements); } else { try { const run = executeInlineExpression(event.value, runtime); inlineRuns.push(run); outputStatements.push(run.statement); } catch (error) { const content = error instanceof Error ? error.message : String(error); const run = { start: event.value.start, end: event.value.end, replacement: `RiX error: ${content}`, statement: { line: event.value.line, code: `@{${event.value.expression}}`, content, kind: "error", label: "Inline RiX", position: event.value.start } }; inlineRuns.push(run); outputStatements.push(run.statement); } }
+      for (const event of document.nodes) if (event.type === "cell") { const cell = event.value; try { runs[cell.index] = executeCell(cell, runtime); } catch (error) { runs[cell.index] = { cell, metadata: cell.metadata, statements: [{ line: cell.codeLine, code: cell.code.trim(), content: error instanceof Error ? error.message : String(error), kind: "error", position: cell.start }] }; } for (const statement of runs[cell.index].statements) statement.cell = cell; outputStatements.push(...runs[cell.index].statements); } else { try { const run = executeInlineExpression(event.value, runtime); inlineRuns.push(run); outputStatements.push(run.statement); } catch (error) { const content = error instanceof Error ? error.message : String(error); const run = { start: event.value.start, end: event.value.end, replacement: `RiX error: ${content}`, statement: { line: event.value.line, code: `@{${event.value.expression}}`, content, kind: "error", label: "Inline RiX", position: event.value.start } }; inlineRuns.push(run); outputStatements.push(run.statement); } }
       return { document, cells: document.cells, inlineRuns, runs, outputStatements: outputStatements.sort((left, right) => left.position - right.position), sliders: runtime.sliders, runtime, renderedSource: replaceInlineExpressions(source, inlineRuns), staticRenderedSource: options.mode === "static" ? renderStaticDocument(document, runs, inlineRuns) : null };
     },
   };
   return assertNotebookEngine(engine);
+}
+
+export function disposeNotebookRun(run) {
+  const observed = new Set();
+  for (const statement of run?.outputStatements || []) if (statement.observed) observed.add(statement.observed);
+  for (const cellRun of run?.runs || []) {
+    if (cellRun?.liveOutput?.observed) observed.add(cellRun.liveOutput.observed);
+    if (cellRun?.staticOutput?.observed) observed.add(cellRun.staticOutput.observed);
+  }
+  for (const result of observed) result.dispose?.();
 }

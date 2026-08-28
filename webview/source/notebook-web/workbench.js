@@ -1,4 +1,4 @@
-import { EditorState } from "@codemirror/state";
+import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { autocompletion } from "@codemirror/autocomplete";
 import { linter } from "@codemirror/lint";
@@ -9,6 +9,8 @@ import renderMathInElement from "katex/contrib/auto-render";
 import { Integer } from "@ratmath/core";
 import {
   formatValue,
+  createGeometryAuthoringProgram,
+  encodeGeometryConstructionSource,
   isOutputValue,
   mountOutputWidgets,
   parseAndEvaluate,
@@ -16,7 +18,7 @@ import {
 } from "../../../../rix/src/index.js";
 import { rixHighlighting, rixLanguage } from "../../../../rix/src/tools/codemirror/index.js";
 import { assertNotebookEngine, createNotebookHost } from "../../../docshell/src/contracts.js";
-import { isInRixCell, parseFenceMetadata } from "./rix-engine.js";
+import { disposeNotebookRun, isInRixCell, parseFenceMetadata, whiteboardSourceNamespace } from "./rix-engine.js";
 
 export function publicationOutputHtml(run) {
   if (!run?.liveOutput) return "";
@@ -72,9 +74,36 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
   function disposeWidgets() {
     for (const dispose of widgetDisposers.splice(0)) dispose();
   }
-  function mountWidgets(root, value, runtime, line) {
+  function replaceWhiteboardSource(graph, cell) {
+    if (!cell?.metadata?.flags?.has("whiteboard")) return;
+    const namesPrefix = whiteboardSourceNamespace(view.state.doc.toString(), cell);
+    const graphName = `${namesPrefix}seed`;
+    const encoded = encodeGeometryConstructionSource(graph, { graphName });
+    if (!encoded.supported) {
+      setStatus(`Whiteboard source was not changed: ${encoded.unsupported.map((item) => item.reason).join("; ")}`);
+      return;
+    }
+    const replacement = `.Plugin.Load("geometry");\n${createGeometryAuthoringProgram(encoded.source, {
+      graphName,
+      namesPrefix,
+      actionPrefix: `geometry-board-${namesPrefix}`,
+    })}`;
+    applying = true;
+    view.dispatch({
+      changes: { from: cell.codeStart, to: cell.codeStart + cell.code.length, insert: replacement },
+      annotations: Transaction.userEvent.of("input.rix-whiteboard"),
+    });
+    applying = false;
+    host.onDocumentChange(view.state.doc.toString());
+    setStatus("Whiteboard edit recorded in the RiX cell; editor undo restores both source and diagram");
+    window.setTimeout(() => run(), 0);
+  }
+  function mountWidgets(root, value, runtime, line, observed = null, cell = null) {
     const dispose = mountOutputWidgets(root, value, {
       format: formatValue,
+      observe: observed?.observe || null,
+      onGraphicAction: (_detail, result) => replaceWhiteboardSource(result?.value, cell),
+      onGraphicPosition: (_detail, result) => replaceWhiteboardSource(result?.value, cell),
       onActivate: ({ address }) => {
         const selection = view.state.selection.main;
         view.dispatch({ changes: { from: selection.from, to: selection.to, insert: address }, selection: { anchor: selection.from + address.length } });
@@ -102,12 +131,12 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
       const result = document.createElement(statement.html ? "div" : "pre"); result.className = "cell-result-value";
       if (statement.html) {
         result.innerHTML = statement.html;
-        mountWidgets(result, statement.value, run.runtime, statement.line);
+        mountWidgets(result, statement.value, run.runtime, statement.line, statement.observed, statement.cell);
         if (result.querySelector(".rix-output-sheet, .rix-output-control-panel, .rix-output-graphic[data-rix-interactive=\"true\"]")) item.removeAttribute("tabindex");
       } else result.textContent = statement.content.replaceAll("\n", " ↵ ");
       item.append(line, source, result);
       item.addEventListener("click", (event) => {
-        if (event.target.closest("button, input, select, textarea, [data-rix-drag-target], td[data-rix-address]")) return;
+        if (event.target.closest("a, button, input, select, textarea, summary, details, canvas, svg, [data-rix-drag-target], [data-rix-graphic-action], [data-rix-geometry-object], td[data-rix-address]")) return;
         api.jumpToLine(statement.line);
       });
       output.append(item);
@@ -120,7 +149,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     const visibleRuns = run.runs.filter((cellRun) => cellRun?.liveOutput && cellRun.metadata.showOutput);
     for (const [index, cellRun] of visibleRuns.entries()) {
       const root = roots[index];
-      if (root) mountWidgets(root, cellRun.liveOutput.value, run.runtime, cellRun.statements.at(-1)?.line || 1);
+      if (root) mountWidgets(root, cellRun.liveOutput.value, run.runtime, cellRun.statements.at(-1)?.line || 1, cellRun.liveOutput.observed, cellRun.cell);
     }
   }
   function renderSliders(sliders) {
@@ -149,6 +178,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
   function run(options = {}) {
     window.clearTimeout(delayedRun);
     try {
+      disposeNotebookRun(currentRun);
       currentRun = engine.executeDocument(view.state.doc.toString(), { ...options, sliderOverrides });
       renderResults(currentRun); renderPreview(currentRun); renderSliders(currentRun.sliders);
       setStatus(`${currentRun.cells.length} RiX cells and ${currentRun.inlineRuns.length} inline expressions ran`); host.onRun(currentRun); return currentRun;
@@ -174,7 +204,7 @@ export function mountNotebookWeb({ engine, elements, host: callbacks, initialDoc
     get editor() { return view; }, get document() { return view.state.doc.toString(); }, get lastRun() { return currentRun; },
     setDocument(source) { applying = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } }); applying = false; sliderOverrides.clear(); return run(); },
     jumpToLine(line) { const target = view.state.doc.line(Math.min(line, view.state.doc.lines)); view.dispatch({ selection: { anchor: target.from }, scrollIntoView: true }); view.focus(); },
-    run, scheduleRun, validate() { return engine.validate(view.state.doc.toString()); }, setRightPane, toggleRightPane() { setRightPane(rightPane === "preview" ? "results" : "preview"); }, destroy() { window.clearTimeout(delayedRun); disposeWidgets(); view.destroy(); },
+    run, scheduleRun, validate() { return engine.validate(view.state.doc.toString()); }, setRightPane, toggleRightPane() { setRightPane(rightPane === "preview" ? "results" : "preview"); }, destroy() { window.clearTimeout(delayedRun); disposeWidgets(); disposeNotebookRun(currentRun); view.destroy(); },
   };
   runButton?.addEventListener("click", () => run()); toggleRightPaneButton?.addEventListener("click", () => api.toggleRightPane()); setRightPane("results"); run(); return api;
 }
