@@ -263,7 +263,7 @@ shell. Install these prerequisites once:
 
 1. Xcode Command Line Tools: `xcode-select --install`
 2. A stable Rust toolchain, normally with [rustup](https://rustup.rs/)
-3. Bun 1.2 or newer
+3. Bun 1.4 or newer
 
 Then, after reviewing `package.json`, install the JavaScript dependencies:
 
@@ -271,6 +271,10 @@ Then, after reviewing `package.json`, install the JavaScript dependencies:
 cd rix-nb
 bun install
 ```
+
+For test feedback, use `bun run test:short`, `bun run test:ten`, and
+`bun run test:suite` in increasing order. `bun run test` aliases the complete
+suite.
 
 All development and production hosts run `bun run prepare:docshell`
 automatically. Run it directly when inspecting the generated HTML build inputs.

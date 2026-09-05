@@ -1,13 +1,17 @@
 {
   "name": "rix-nb",
   "version": "0.1.0",
+  "packageManager": "bun@1.4.0",
   "description": "Native macOS Markdown and RiX notebook authoring environment",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "prepare:docshell": "bun scripts/extract-docshell.mjs",
-    "test": "bun test",
+    "test": "bun run test:suite",
+    "test:short": "bun test --dots docshell/src/browser/browser-document-store.test.js docshell/src/browser/zip-project.test.js docshell/src/file-policy.test.js scripts/host-integration.test.js webview/source/plugin-catalog-core.test.js webview/source/project.test.js webview/source/theme.test.js",
+    "test:ten": "bun test --dots",
+    "test:suite": "bun test --dots",
     "sync:help": "bun scripts/sync-help.mjs",
     "build:live-runtime": "vite build --config vite.live.config.js",
     "dev:web": "bun run prepare:docshell && vite --config vite.browser.config.js --host 127.0.0.1 --port 1421",
@@ -37,7 +41,7 @@
     "vite": "^6.1.0"
   },
   "engines": {
-    "bun": ">=1.2.0"
+    "bun": ">=1.4.0"
   },
   "license": "MIT"
 }
